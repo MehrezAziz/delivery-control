@@ -23,14 +23,18 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "CREATE_PRICING_POLICY",
-    targetType: "COUNTRY_PRICING_POLICY",
-    targetId: policy.id,
-    newValue: JSON.stringify(body),
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "CREATE_PRICING_POLICY",
+      targetType: "COUNTRY_PRICING_POLICY",
+      targetId: policy.id,
+      newValue: JSON.stringify(body),
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json(policy);
 }
@@ -47,15 +51,19 @@ export async function PUT(req: NextRequest) {
     data: { ...data, deliveryZoneType, isActive },
   });
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "UPDATE_PRICING_POLICY",
-    targetType: "COUNTRY_PRICING_POLICY",
-    targetId: id,
-    oldValue: old ? JSON.stringify(old) : null,
-    newValue: JSON.stringify(policy),
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "UPDATE_PRICING_POLICY",
+      targetType: "COUNTRY_PRICING_POLICY",
+      targetId: id,
+      oldValue: old ? JSON.stringify(old) : null,
+      newValue: JSON.stringify(policy),
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json(policy);
 }

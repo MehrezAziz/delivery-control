@@ -63,18 +63,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "BULK_UPDATE_PRICING",
-    targetType: "COUNTRY_PRICING_POLICY",
-    targetId: "bulk",
-    newValue: JSON.stringify({
-      countryIds,
-      created,
-      updated,
-    }),
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "BULK_UPDATE_PRICING",
+      targetType: "COUNTRY_PRICING_POLICY",
+      targetId: "bulk",
+      newValue: JSON.stringify({
+        countryIds,
+        created,
+        updated,
+      }),
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json({ success: true, created, updated });
 }

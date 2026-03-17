@@ -10,5 +10,11 @@ export async function logAction(params: {
   newValue?: string | null;
   reason?: string | null;
 }) {
+  // Verify actor exists before creating log to avoid FK constraint errors
+  const actor = await prisma.superUser.findUnique({ where: { id: params.actorId } });
+  if (!actor) {
+    console.error(`logAction: SuperUser ${params.actorId} not found — skipping log`);
+    return;
+  }
   await prisma.actionLog.create({ data: params });
 }

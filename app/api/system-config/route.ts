@@ -11,14 +11,18 @@ export async function POST(req: NextRequest) {
     data: { key, value, category, description, updatedBy: auth.superUserId },
   });
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "CREATE_SYSTEM_CONFIG",
-    targetType: "SYSTEM_CONFIG",
-    targetId: config.id,
-    newValue: JSON.stringify({ key, value, category }),
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "CREATE_SYSTEM_CONFIG",
+      targetType: "SYSTEM_CONFIG",
+      targetId: config.id,
+      newValue: JSON.stringify({ key, value, category }),
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json(config);
 }
@@ -35,15 +39,19 @@ export async function PUT(req: NextRequest) {
     data: { value, updatedBy: auth.superUserId },
   });
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "UPDATE_SYSTEM_CONFIG",
-    targetType: "SYSTEM_CONFIG",
-    targetId: id,
-    oldValue: old.value,
-    newValue: value,
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "UPDATE_SYSTEM_CONFIG",
+      targetType: "SYSTEM_CONFIG",
+      targetId: id,
+      oldValue: old.value,
+      newValue: value,
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json(config);
 }

@@ -32,14 +32,18 @@ export async function POST(req: NextRequest) {
     include: { customerService: true },
   });
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: "ADMIN",
-    actionType: "CREATE_CUSTOMER_SERVICE",
-    targetType: "CUSTOMER_SERVICE",
-    targetId: superUser.customerService!.id,
-    newValue: JSON.stringify({ pseudo, email, roles }),
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: "ADMIN",
+      actionType: "CREATE_CUSTOMER_SERVICE",
+      targetType: "CUSTOMER_SERVICE",
+      targetId: superUser.customerService!.id,
+      newValue: JSON.stringify({ pseudo, email, roles }),
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json({ success: true, id: superUser.customerService!.id });
 }
