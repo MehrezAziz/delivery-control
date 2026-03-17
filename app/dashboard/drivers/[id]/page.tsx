@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import DriverApprovalForm from "./driver-approval-form";
 import DriverDocumentsViewer from "./driver-documents-viewer";
 
@@ -24,7 +26,13 @@ export default async function DriverReviewPage({ params }: { params: Promise<{ i
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Driver Review</h1>
+      <div className="flex items-center gap-4">
+        
+        <h1 className="text-2xl font-semibold">Driver Review</h1>
+        <Link href="/dashboard/drivers">
+          <Button variant="outline" size="sm">← Go back</Button>
+        </Link>
+      </div>
 
       <Card>
         <CardHeader><CardTitle>Driver Info</CardTitle></CardHeader>

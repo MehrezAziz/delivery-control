@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import UserStatusForm from "./user-status-form";
+
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +38,13 @@ export default async function UserDetailPage({ params, searchParams }: { params:
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">User Details</h1>
+      <div className="flex items-center gap-4">
+        
+        <h1 className="text-2xl font-semibold">User Details</h1>
+        <Link href="/dashboard/users">
+          <Button variant="outline" size="sm">← Go back</Button>
+        </Link>
+      </div>
 
       <Card>
         <CardHeader>
