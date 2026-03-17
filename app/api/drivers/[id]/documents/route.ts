@@ -6,14 +6,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   await requireAuth();
   const { id } = await params;
 
-  const verification = await prisma.driverVerification.findUnique({
+  const verifications = await prisma.driverVerification.findMany({
     where: { driverId: id },
     include: { documents: true },
+    orderBy: { submittedAt: "desc" },
   });
 
-  if (!verification) {
+  const latestVerification = verifications[0] ?? null;
+
+  if (!latestVerification) {
     return NextResponse.json({ documents: [] });
   }
 
-  return NextResponse.json({ documents: verification.documents });
+  return NextResponse.json({ documents: latestVerification.documents });
 }

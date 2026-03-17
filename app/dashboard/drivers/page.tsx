@@ -12,7 +12,10 @@ export default async function DriversApprovalPage() {
     where: { status: { in: ["PENDING_REVIEW", "INCOMPLETE"] } },
     include: {
       user: true,
-      driverVerification: true, // Only check if verification exists, NOT documents
+      driverVerifications: {
+        orderBy: { submittedAt: "desc" as const },
+        take: 1,
+      },
     },
     orderBy: { user: { createdAt: "desc" } },
   });
@@ -47,8 +50,8 @@ export default async function DriversApprovalPage() {
                     <TableCell>{d.vehicleType || "-"}</TableCell>
                     <TableCell><Badge variant="secondary">{d.status}</Badge></TableCell>
                     <TableCell>
-                      {d.driverVerification ? (
-                        <Badge variant="outline">{d.driverVerification.documentType}</Badge>
+                      {d.driverVerifications[0] ? (
+                        <Badge variant="outline">{d.driverVerifications[0].documentType}</Badge>
                       ) : <span className="text-muted-foreground text-sm">None</span>}
                     </TableCell>
                     <TableCell>

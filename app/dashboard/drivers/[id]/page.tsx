@@ -17,12 +17,16 @@ export default async function DriverReviewPage({ params }: { params: Promise<{ i
     where: { id },
     include: {
       user: { include: { userRestrictions: { orderBy: { createdAt: "desc" }, take: 5 } } },
-      driverVerification: true, // Only check existence, NOT documents
+      driverVerifications: {
+        orderBy: { submittedAt: "desc" },
+        take: 1,
+      },
     },
   });
 
   if (!driver) notFound();
-  const hasVerification = !!driver.driverVerification;
+  const latestVerification = driver.driverVerifications[0] ?? null;
+  const hasVerification = !!latestVerification;
 
   return (
     <div className="space-y-6">
@@ -42,10 +46,10 @@ export default async function DriverReviewPage({ params }: { params: Promise<{ i
           <div><span className="text-sm text-muted-foreground">Vehicle:</span> <span className="ml-2">{driver.vehicleType || "-"}</span></div>
           <div><span className="text-sm text-muted-foreground">Status:</span> <Badge className="ml-2">{driver.status}</Badge></div>
           {hasVerification && (
-            <div><span className="text-sm text-muted-foreground">Document Type:</span> <Badge className="ml-2" variant="outline">{driver.driverVerification!.documentType}</Badge></div>
+            <div><span className="text-sm text-muted-foreground">Document Type:</span> <Badge className="ml-2" variant="outline">{latestVerification!.documentType}</Badge></div>
           )}
-          {hasVerification && driver.driverVerification!.submittedAt && (
-            <div><span className="text-sm text-muted-foreground">Submitted:</span> <span className="ml-2">{driver.driverVerification!.submittedAt.toLocaleDateString()}</span></div>
+          {hasVerification && latestVerification!.submittedAt && (
+            <div><span className="text-sm text-muted-foreground">Submitted:</span> <span className="ml-2">{latestVerification!.submittedAt.toLocaleDateString()}</span></div>
           )}
         </CardContent>
       </Card>

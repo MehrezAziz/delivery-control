@@ -18,7 +18,7 @@ export default async function UserDetailPage({ params, searchParams }: { params:
     where: { id },
     include: {
       customer: true,
-      driver: { include: { driverVerification: true } },
+      driver: { include: { driverVerifications: { orderBy: { submittedAt: "desc" as const }, take: 1 } } },
       addresses: {
         include: {
           delegation: {
@@ -34,7 +34,7 @@ export default async function UserDetailPage({ params, searchParams }: { params:
 
   const isCustomer = type === "customer" || !!user.customer;
   const isDriver = type === "driver" || !!user.driver;
-  const hasDocuments = !!user.driver?.driverVerification;
+  const hasDocuments = (user.driver?.driverVerifications?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -60,8 +60,8 @@ export default async function UserDetailPage({ params, searchParams }: { params:
         </CardContent>
       </Card>
 
-      {/* Customer Addresses */}
-      {isCustomer && user.addresses.length > 0 && (
+      {/* Addresses (for both customer and driver) */}
+      {user.addresses.length > 0 && (
         <Card>
           <CardHeader><CardTitle>Addresses ({user.addresses.length})</CardTitle></CardHeader>
           <CardContent>

@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id },
     include: {
       customer: true,
-      driver: { include: { driverVerification: true } },
+      driver: { include: { driverVerifications: { orderBy: { submittedAt: "desc" as const }, take: 1 } } },
     },
   });
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -24,7 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     await prisma.customer.update({ where: { id: user.customer.id }, data: { customerStatus: status } });
   } else if (userType === "driver" && user.driver) {
     // Check: can't set to INCOMPLETE if driver has documents
-    if (status === "INCOMPLETE" && user.driver.driverVerification) {
+    if (status === "INCOMPLETE" && user.driver.driverVerifications.length > 0) {
       return NextResponse.json({ error: "Cannot set status to INCOMPLETE when driver has submitted documents" }, { status: 400 });
     }
     oldStatus = user.driver.status;
@@ -54,16 +54,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
   }
 
-  await logAction({
-    actorId: auth.superUserId,
-    actorRole: auth.role,
-    actionType: "UPDATE_USER_STATUS",
-    targetType: userType.toUpperCase(),
-    targetId: id,
-    oldValue: oldStatus,
-    newValue: status,
-    reason,
-  });
+  try {
+    await logAction({
+      actorId: auth.superUserId,
+      actorRole: auth.role,
+      actionType: "UPDATE_USER_STATUS",
+      targetType: userType.toUpperCase(),
+      targetId: id,
+      oldValue: oldStatus,
+      newValue: status,
+      reason,
+    });
+  } catch (logErr) {
+    console.error("Failed to log action:", logErr);
+  }
 
   return NextResponse.json({ success: true });
 }
