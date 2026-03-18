@@ -10,12 +10,13 @@ export interface AdminPayload {
   role: "ADMIN" | "CUSTOMER_SERVICE";
   pseudo: string;
   email: string;
+  csRoles?: string[];
 }
 
 export async function signToken(payload: AdminPayload): Promise<string> {
   return new SignJWT(payload as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("7d")
+    .setExpirationTime("24h")
     .sign(secret);
 }
 
@@ -41,4 +42,14 @@ export async function requireAdmin(): Promise<AdminPayload> {
   const payload = await requireAuth();
   if (payload.role !== "ADMIN") throw new Error("Admin only");
   return payload;
+}
+
+export async function requireCS(): Promise<AdminPayload> {
+  const payload = await requireAuth();
+  if (payload.role !== "CUSTOMER_SERVICE") throw new Error("Customer Service only");
+  return payload;
+}
+
+export function hasCSRole(payload: AdminPayload, role: string): boolean {
+  return payload.role === "ADMIN" || (payload.csRoles || []).includes(role);
 }

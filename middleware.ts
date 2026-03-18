@@ -3,27 +3,46 @@ import { jwtVerify } from "jose";
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secret");
 
+interface TokenPayload {
+  role: "ADMIN" | "CUSTOMER_SERVICE";
+}
+
+async function getPayload(token: string): Promise<TokenPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    return payload as unknown as TokenPayload;
+  } catch {
+    return null;
+  }
+}
+
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get("admin_token")?.value;
 
+  // Protect /dashboard routes — admin only
   if (req.nextUrl.pathname.startsWith("/dashboard")) {
     if (!token) return NextResponse.redirect(new URL("/login", req.url));
-    try {
-      await jwtVerify(token, secret);
-      return NextResponse.next();
-    } catch {
-      return NextResponse.redirect(new URL("/login", req.url));
-    }
+    const payload = await getPayload(token);
+    if (!payload) return NextResponse.redirect(new URL("/login", req.url));
+    if (payload.role !== "ADMIN") return NextResponse.redirect(new URL("/login", req.url));
+    return NextResponse.next();
   }
 
-  if (req.nextUrl.pathname === "/login" && token) {
-    try {
-      await jwtVerify(token, secret);
-      return NextResponse.redirect(new URL("/dashboard", req.url));
-    } catch { /* invalid token, let them login */ }
+  // Protect /cs routes — customer service only
+  if (req.nextUrl.pathname.startsWith("/cs")) {
+    if (!token) return NextResponse.redirect(new URL("/login", req.url));
+    const payload = await getPayload(token);
+    if (!payload) return NextResponse.redirect(new URL("/login", req.url));
+    if (payload.role !== "CUSTOMER_SERVICE") return NextResponse.redirect(new URL("/login", req.url));
+    return NextResponse.next();
+  }
+
+  // If on login page, always allow access (user may need to re-authenticate)
+  if (req.nextUrl.pathname.startsWith("/login")) {
+    return NextResponse.next();
   }
 
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/dashboard/:path*", "/login"] };
+export const config = { matcher: ["/dashboard/:path*", "/cs/:path*"] };

@@ -1,58 +1,51 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Shield, Headphones } from "lucide-react";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "Login failed"); return; }
-      router.push("/dashboard");
-    } catch { setError("Network error"); }
-    finally { setLoading(false); }
-  }
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Delivery Control Panel</CardTitle>
-          <p className="text-sm text-muted-foreground">Sign in with your admin email</p>
+          <p className="text-sm text-muted-foreground">Select your role to continue</p>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="admin@example.com" />
+        <CardContent className="space-y-4">
+          <Button
+            variant="outline"
+            className="w-full h-20 flex items-center gap-4 text-left justify-start px-6"
+            onClick={() => router.push("/login/admin")}
+          >
+            <Shield className="h-8 w-8 text-zinc-700 shrink-0" />
+            <div>
+              <div className="font-semibold text-base">Administrator</div>
+              <div className="text-xs text-muted-foreground">Full platform management access</div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full h-20 flex items-center gap-4 text-left justify-start px-6"
+            onClick={() => router.push("/login/customer-service")}
+          >
+            <Headphones className="h-8 w-8 text-zinc-700 shrink-0" />
+            <div>
+              <div className="font-semibold text-base">Customer Service</div>
+              <div className="text-xs text-muted-foreground">Support and user management</div>
             </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-            </Button>
-          </form>
+          </Button>
         </CardContent>
       </Card>
     </div>

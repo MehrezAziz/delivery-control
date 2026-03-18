@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -25,7 +25,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Session security: if sessionStorage flag is missing (window was closed), force re-auth
+  useEffect(() => {
+    const sessionActive = sessionStorage.getItem("session_active");
+    if (!sessionActive) {
+      // Clear cookie and redirect — closing the window means re-login is required
+      fetch("/api/auth/logout", { method: "POST" }).then(() => {
+        window.location.href = "/login/admin";
+      });
+    }
+  }, []);
+
   async function handleLogout() {
+    sessionStorage.removeItem("session_active");
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
