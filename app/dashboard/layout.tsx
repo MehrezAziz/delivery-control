@@ -6,11 +6,13 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare,
+  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle,
 } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/orders", label: "Orders", icon: Package },
+  { href: "/dashboard/disputes", label: "Disputes", icon: AlertTriangle },
   { href: "/dashboard/users", label: "Users", icon: Users },
   { href: "/dashboard/drivers", label: "Driver Approval", icon: Truck },
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },

@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare,
+  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package,
 } from "lucide-react";
 
 export default function CSLayout({ children }: { children: React.ReactNode }) {
@@ -35,6 +35,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs", label: "Dashboard", icon: LayoutDashboard },
     { href: "/cs/customers", label: "Customers", icon: Users },
     { href: "/cs/drivers", label: "Drivers", icon: Truck },
+    { href: "/cs/orders", label: "Orders", icon: Package },
     { href: "/cs/support", label: "Support", icon: MessageSquare },
   ];
 
