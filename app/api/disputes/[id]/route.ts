@@ -26,6 +26,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     });
 
+    // If dispute is resolved/closed, set order status to DELIVERED
+    if (body.status === "RESOLVED" || body.status === "CLOSED") {
+      await prisma.order.update({
+        where: { id: dispute.orderId },
+        data: { status: "DELIVERED" },
+      });
+    }
+
     return NextResponse.json(updated);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });

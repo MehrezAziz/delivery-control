@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package,
+  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle,
 } from "lucide-react";
 
 export default function CSLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +37,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs/drivers", label: "Drivers", icon: Truck },
     { href: "/cs/orders", label: "Orders", icon: Package },
     { href: "/cs/support", label: "Support", icon: MessageSquare },
+    { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },
   ];
 
   const isActive = (href: string) =>

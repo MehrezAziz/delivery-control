@@ -94,6 +94,9 @@ export default function DisputesPage() {
                           </DialogContent>
                         </Dialog>
                       )}
+                      {(d.status === "OPEN" || d.status === "INVESTIGATING") && (
+                        <Button size="sm" variant="outline" className="text-green-600 border-green-300" onClick={() => handleUpdate(d.id, { status: "RESOLVED", resolution: "Marked as delivered by admin" })}>Mark Delivered</Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
