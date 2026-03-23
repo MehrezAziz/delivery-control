@@ -66,6 +66,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         where: { id: dispute.orderId },
         data: { status: "DELIVERED" },
       });
+      // Close the customer-driver chat room
+      await prisma.chatRoom.updateMany({
+        where: { orderId: dispute.orderId, status: "ACTIVE" },
+        data: { status: "CLOSED" },
+      });
+      // Close related support tickets
+      await prisma.supportTicket.updateMany({
+        where: { description: { contains: dispute.orderId }, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        data: { status: "RESOLVED", resolvedAt: new Date() },
+      });
     }
 
     return NextResponse.json(updated);
@@ -146,6 +156,18 @@ async function handleRefund(disputeId: string, orderId: string) {
     await tx.order.update({
       where: { id: orderId },
       data: { status: "REFUNDED" },
+    });
+
+    // Close chat room on refund
+    await tx.chatRoom.updateMany({
+      where: { orderId, status: "ACTIVE" },
+      data: { status: "CLOSED" },
+    });
+
+    // Close related support tickets
+    await tx.supportTicket.updateMany({
+      where: { description: { contains: orderId }, status: { in: ["OPEN", "IN_PROGRESS"] } },
+      data: { status: "CLOSED", resolvedAt: new Date() },
     });
   });
 
