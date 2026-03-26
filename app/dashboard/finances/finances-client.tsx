@@ -66,6 +66,7 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
+  const [negativeBalanceInfo, setNegativeBalanceInfo] = useState<{ negativeBalanceSince: string; daysRemainingToPay: number; maxNegativeDays: number } | null>(null);
   const [search, setSearch] = useState("");
   const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -99,6 +100,7 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
     if (expandedId === accountId) { setExpandedId(null); return; }
     setExpandedId(accountId);
     setTransactions([]);
+    setNegativeBalanceInfo(null);
     setAmount(""); setDescription(""); setTxType("DEPOSIT");
     setError(""); setSuccess("");
     setLoadingTx(true);
@@ -106,6 +108,7 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
       const res = await fetch(`/api/drivers/finances/${accountId}`);
       const data = await res.json();
       if (data.transactions) setTransactions(data.transactions);
+      if (data.negativeBalanceInfo) setNegativeBalanceInfo(data.negativeBalanceInfo);
     } catch {} finally { setLoadingTx(false); }
   }
 
@@ -203,6 +206,21 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
                   <TableRow key={`${acc.id}-detail`}>
                     <TableCell colSpan={6}>
                       <div className="bg-zinc-50 rounded-lg p-4 space-y-4 border">
+                        {negativeBalanceInfo && (
+                          <div className={`rounded-lg p-3 ${negativeBalanceInfo.daysRemainingToPay <= 0 ? 'bg-red-50 border border-red-200' : 'bg-orange-50 border border-orange-200'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">{negativeBalanceInfo.daysRemainingToPay <= 0 ? '🚫' : '⚠️'}</span>
+                              <div>
+                                {negativeBalanceInfo.daysRemainingToPay <= 0 ? (
+                                  <p className="text-sm font-semibold text-red-700">Account Paused — exceeded {negativeBalanceInfo.maxNegativeDays} days with negative balance</p>
+                                ) : (
+                                  <p className="text-sm font-semibold text-orange-700">{negativeBalanceInfo.daysRemainingToPay} day{negativeBalanceInfo.daysRemainingToPay !== 1 ? 's' : ''} remaining to pay fees (max {negativeBalanceInfo.maxNegativeDays} days)</p>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">Negative since: {new Date(negativeBalanceInfo.negativeBalanceSince).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="space-y-3">
                           <p className="text-sm font-semibold text-zinc-700">Record Transaction</p>
                           <div className="flex flex-wrap gap-3 items-end">

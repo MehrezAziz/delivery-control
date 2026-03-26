@@ -39,6 +39,32 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Driver not found" }, { status: 404 });
   }
 
+  // Calculate days remaining to pay if balance is negative
+  let negativeBalanceInfo: { negativeBalanceSince: Date | null; daysRemainingToPay: number; maxNegativeDays: number } | null = null;
+  if (driver.driverAccount && Number(driver.driverAccount.balance) < 0) {
+    const driverAddress = driver.user.addresses[0];
+    if (driverAddress) {
+      const pricingPolicy = await prisma.countryPricingPolicy.findFirst({
+        where: { countryId: driverAddress.delegation.governorate.country.id, isActive: true },
+      });
+      if (pricingPolicy) {
+        const since = driver.driverAccount.negativeBalanceSince || new Date();
+        if (!driver.driverAccount.negativeBalanceSince) {
+          await prisma.driverAccount.update({
+            where: { id: driver.driverAccount.id },
+            data: { negativeBalanceSince: since },
+          });
+        }
+        const daysSinceNegative = Math.floor((Date.now() - new Date(since).getTime()) / (1000 * 60 * 60 * 24));
+        negativeBalanceInfo = {
+          negativeBalanceSince: since,
+          daysRemainingToPay: Math.max(0, pricingPolicy.maxNegativeDays - daysSinceNegative),
+          maxNegativeDays: pricingPolicy.maxNegativeDays,
+        };
+      }
+    }
+  }
+
   return NextResponse.json({
     id: driver.id,
     userId: driver.user.id,
@@ -73,6 +99,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     account: driver.driverAccount ? {
       balance: driver.driverAccount.balance,
       completedDeliveries: driver.driverAccount.completedDeliveries,
+      ...(negativeBalanceInfo ? {
+        negativeBalanceSince: negativeBalanceInfo.negativeBalanceSince,
+        daysRemainingToPay: negativeBalanceInfo.daysRemainingToPay,
+        maxNegativeDays: negativeBalanceInfo.maxNegativeDays,
+      } : {}),
     } : null,
     performance: driver.performanceMetrics ? {
       totalOrders: driver.performanceMetrics.totalOrders,

@@ -20,7 +20,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: {
         driver: {
           include: {
-            user: { select: { id: true, firstName: true, secondName: true, phone: true } },
+            user: {
+              include: {
+                addresses: {
+                  include: { delegation: { include: { governorate: { include: { country: true } } } } },
+                  take: 1,
+                },
+              },
+            },
           },
         },
         transactions: {
@@ -32,6 +39,29 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
+    // Calculate days remaining if balance is negative
+    let negativeBalanceInfo: any = undefined;
+    if (Number(account.balance) < 0) {
+      const driverAddress = (account.driver.user as any).addresses?.[0];
+      if (driverAddress) {
+        const pricingPolicy = await prisma.countryPricingPolicy.findFirst({
+          where: { countryId: driverAddress.delegation.governorate.country.id, isActive: true },
+        });
+        if (pricingPolicy) {
+          const since = account.negativeBalanceSince || new Date();
+          if (!account.negativeBalanceSince) {
+            await prisma.driverAccount.update({ where: { id: account.id }, data: { negativeBalanceSince: since } });
+          }
+          const daysSinceNegative = Math.floor((Date.now() - new Date(since).getTime()) / (1000 * 60 * 60 * 24));
+          negativeBalanceInfo = {
+            negativeBalanceSince: since,
+            daysRemainingToPay: Math.max(0, pricingPolicy.maxNegativeDays - daysSinceNegative),
+            maxNegativeDays: pricingPolicy.maxNegativeDays,
+          };
+        }
+      }
+    }
+
     return NextResponse.json({
       id: account.id,
       driverId: account.driver.id,
@@ -41,6 +71,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       driverName: `${account.driver.user.firstName || ""} ${account.driver.user.secondName || ""}`.trim(),
       phone: account.driver.user.phone,
       driverStatus: account.driver.status,
+      negativeBalanceInfo,
       transactions: account.transactions.map(t => ({
         id: t.id,
         type: t.type,
@@ -88,9 +119,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const newBalance = Number(account.balance) + amount;
 
     await prisma.$transaction(async (tx) => {
+      const updateData: any = { balance: newBalance };
+      // If balance goes from negative to positive/zero, clear negative tracking and un-pause
+      if (Number(account.balance) < 0 && newBalance >= 0) {
+        updateData.negativeBalanceSince = null;
+        // Un-pause the driver if they were paused
+        const driver = await tx.driver.findUnique({ where: { id: account.driverId } });
+        if (driver && driver.status === 'PAUSED') {
+          await tx.driver.update({ where: { id: driver.id }, data: { status: 'VERIFIED' } });
+        }
+      }
       await tx.driverAccount.update({
         where: { id },
-        data: { balance: newBalance },
+        data: updateData,
       });
       await tx.driverTransaction.create({
         data: {

@@ -22,12 +22,12 @@ interface DriverDetail {
   vehicleType: string | null; status: string; approvedAt: string | null;
   description: string | null; createdAt: string; hasDocuments: boolean;
   addresses: Address[]; restrictions: Restriction[];
-  account: { balance: number; completedDeliveries: number } | null;
+  account: { balance: number; completedDeliveries: number; negativeBalanceSince?: string; daysRemainingToPay?: number; maxNegativeDays?: number } | null;
   performance: { totalOrders: number; completedOrders: number; cancelledOrders: number; avgRating: number | null; completionRate: number | null } | null;
 }
 interface MeData { csRoles: string[] }
 
-const driverStatuses = ["INCOMPLETE", "PENDING_REVIEW", "VERIFIED", "REJECTED", "SUSPENDED"];
+const driverStatuses = ["INCOMPLETE", "PENDING_REVIEW", "VERIFIED", "REJECTED", "SUSPENDED", "PAUSED"];
 
 export default function CSDriverDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -113,9 +113,28 @@ export default function CSDriverDetailPage() {
         <Card>
           <CardHeader><CardTitle>Account</CardTitle></CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div><span className="text-sm text-muted-foreground">Balance:</span> <span className="ml-2">{driver.account.balance} TND</span></div>
+            <div><span className="text-sm text-muted-foreground">Balance:</span> <span className={`ml-2 font-semibold ${Number(driver.account.balance) < 0 ? 'text-red-600' : 'text-green-600'}`}>{driver.account.balance} TND</span></div>
             <div><span className="text-sm text-muted-foreground">Completed Deliveries:</span> <span className="ml-2">{driver.account.completedDeliveries}</span></div>
           </CardContent>
+          {driver.account.daysRemainingToPay !== undefined && Number(driver.account.balance) < 0 && (
+            <CardContent className="pt-0">
+              <div className={`rounded-lg p-3 ${driver.account.daysRemainingToPay <= 0 ? 'bg-red-50 border border-red-200' : 'bg-orange-50 border border-orange-200'}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{driver.account.daysRemainingToPay <= 0 ? '🚫' : '⚠️'}</span>
+                  <div>
+                    {driver.account.daysRemainingToPay <= 0 ? (
+                      <p className="text-sm font-semibold text-red-700">Account Paused — exceeded {driver.account.maxNegativeDays} days with negative balance</p>
+                    ) : (
+                      <p className="text-sm font-semibold text-orange-700">{driver.account.daysRemainingToPay} day{driver.account.daysRemainingToPay !== 1 ? 's' : ''} remaining to pay fees (max {driver.account.maxNegativeDays} days)</p>
+                    )}
+                    {driver.account.negativeBalanceSince && (
+                      <p className="text-xs text-muted-foreground mt-1">Negative since: {new Date(driver.account.negativeBalanceSince).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          )}
         </Card>
       )}
 
