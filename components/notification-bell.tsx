@@ -1,0 +1,190 @@
+"use client";
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Bell } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { connectSocket, disconnectSocket, getSocket } from "@/lib/socket";
+import { toast } from "sonner";
+
+interface Notification {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  priority: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+  sentAt: string;
+  readAt: string | null;
+}
+
+export function NotificationBell() {
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch unread count
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications/unread-count");
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.count);
+      }
+    } catch {}
+  }, []);
+
+  // Fetch recent notifications
+  const fetchNotifications = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/notifications?limit=10");
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.data || []);
+      }
+    } catch {} finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Connect WebSocket and listen for notifications
+  useEffect(() => {
+    async function initSocket() {
+      try {
+        const meRes = await fetch("/api/auth/me");
+        if (!meRes.ok) return;
+        const me = await meRes.json();
+        if (!me.token) return;
+
+        const socket = connectSocket(me.token);
+        socket.on("notification", (notif: Notification) => {
+          setUnreadCount((c) => c + 1);
+          setNotifications((prev) => [notif, ...prev].slice(0, 10));
+          toast(notif.title, { description: notif.body });
+        });
+      } catch {}
+    }
+
+    fetchUnreadCount();
+    initSocket();
+
+    // Poll unread count every 30s as fallback
+    const interval = setInterval(fetchUnreadCount, 30000);
+
+    return () => {
+      clearInterval(interval);
+      disconnectSocket();
+    };
+  }, [fetchUnreadCount]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleOpen = () => {
+    setIsOpen(!isOpen);
+    if (!isOpen) fetchNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await fetch("/api/notifications/read-all", { method: "PATCH" });
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
+    } catch {}
+  };
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+      setUnreadCount((c) => Math.max(0, c - 1));
+      setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, readAt: new Date().toISOString() } : n));
+    } catch {}
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMin = Math.floor((now.getTime() - date.getTime()) / 60000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h`;
+    return `${Math.floor(diffHr / 24)}d`;
+  };
+
+  const priorityColor: Record<string, string> = {
+    LOW: "text-zinc-400",
+    MEDIUM: "text-blue-500",
+    HIGH: "text-orange-500",
+    CRITICAL: "text-red-600",
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <Button variant="ghost" size="icon" className="relative" onClick={handleOpen}>
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </Button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border bg-white shadow-lg z-50">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <span className="text-sm font-semibold">Notifications</span>
+            {unreadCount > 0 && (
+              <button onClick={handleMarkAllRead} className="text-xs text-blue-600 hover:underline">
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-80 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="py-8 text-center text-sm text-zinc-400">No notifications</div>
+            ) : (
+              notifications.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={() => !n.readAt && handleMarkRead(n.id)}
+                  className={`flex gap-3 border-b px-4 py-3 cursor-pointer hover:bg-zinc-50 transition-colors ${!n.readAt ? "bg-blue-50/50" : ""}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium truncate ${!n.readAt ? "font-semibold" : ""}`}>
+                        {n.title}
+                      </span>
+                      <span className={`text-[10px] font-bold ${priorityColor[n.priority] || ""}`}>
+                        {n.priority}
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{n.body}</p>
+                    <span className="text-[10px] text-zinc-400 mt-1">{formatTime(n.sentAt)}</span>
+                  </div>
+                  {!n.readAt && <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

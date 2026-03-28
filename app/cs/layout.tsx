@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle, Wallet,
 } from "lucide-react";
+import { NotificationBell } from "@/components/notification-bell";
 
 export default function CSLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -84,6 +85,9 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
             <Menu className="h-5 w-5" />
           </Button>
           <h2 className="text-sm font-medium text-muted-foreground">Customer Service Panel</h2>
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
       </div>
