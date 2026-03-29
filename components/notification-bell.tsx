@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { connectSocket, disconnectSocket, getSocket } from "@/lib/socket";
@@ -24,6 +25,12 @@ export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Determine if we're in admin or CS panel
+  const isAdmin = pathname.startsWith("/dashboard");
+  const basePath = isAdmin ? "/dashboard" : "/cs";
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -71,8 +78,8 @@ export function NotificationBell() {
     fetchUnreadCount();
     initSocket();
 
-    // Poll unread count every 30s as fallback
-    const interval = setInterval(fetchUnreadCount, 30000);
+    // Poll unread count every 15s as fallback
+    const interval = setInterval(fetchUnreadCount, 15000);
 
     return () => {
       clearInterval(interval);
@@ -110,6 +117,24 @@ export function NotificationBell() {
       setUnreadCount((c) => Math.max(0, c - 1));
       setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, readAt: new Date().toISOString() } : n));
     } catch {}
+  };
+
+  const handleNotificationClick = async (n: Notification) => {
+    if (!n.readAt) await handleMarkRead(n.id);
+    setIsOpen(false);
+
+    // Navigate based on notification type and relatedEntityType
+    if (n.relatedEntityType === 'SupportTicket' && n.relatedEntityId) {
+      router.push(`${basePath}/support/${n.relatedEntityId}`);
+    } else if (n.relatedEntityType === 'Dispute' && n.relatedEntityId) {
+      router.push(`${basePath}/disputes`);
+    } else if (n.relatedEntityType === 'Order' && n.relatedEntityId) {
+      router.push(`${basePath}/orders/${n.relatedEntityId}`);
+    } else if (n.type === 'NEW_DRIVER_REGISTRATION' || n.type === 'DRIVER_DOCUMENTS_SUBMITTED') {
+      router.push(`${basePath}/drivers`);
+    } else if (n.type === 'LARGE_WITHDRAWAL_REQUEST' || n.type === 'DRIVER_DEBT_THRESHOLD') {
+      router.push(`${basePath}/finances`);
+    }
   };
 
   const formatTime = (dateStr: string) => {
@@ -163,7 +188,7 @@ export function NotificationBell() {
               notifications.map((n) => (
                 <div
                   key={n.id}
-                  onClick={() => !n.readAt && handleMarkRead(n.id)}
+                  onClick={() => handleNotificationClick(n)}
                   className={`flex gap-3 border-b px-4 py-3 cursor-pointer hover:bg-zinc-50 transition-colors ${!n.readAt ? "bg-blue-50/50" : ""}`}
                 >
                   <div className="flex-1 min-w-0">
