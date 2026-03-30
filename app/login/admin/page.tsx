@@ -35,7 +35,7 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50">
+    <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center relative">
           <button onClick={() => router.push("/login")} className="absolute left-0 top-0 text-muted-foreground hover:text-foreground">

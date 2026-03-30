@@ -9,6 +9,7 @@ import {
   LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -51,16 +52,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
 
   return (
-    <div className="flex h-screen bg-zinc-50">
+    <div className="flex h-screen bg-background">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r transform transition-transform lg:relative lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform lg:relative lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex items-center justify-between p-4">
-          <h1 className="text-lg font-semibold">Delivery Control</h1>
+          <h1 className="text-lg font-semibold text-foreground">Delivery Control</h1>
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(false)}>
             <X className="h-4 w-4" />
           </Button>
@@ -69,7 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <nav className="flex flex-col gap-1 p-2">
           {navItems.map(item => (
             <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}
-              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${isActive(item.href) ? "bg-zinc-100 font-medium" : "hover:bg-zinc-50 text-muted-foreground"}`}>
+              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${isActive(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent/50 text-muted-foreground"}`}>
               <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
@@ -85,12 +86,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex items-center gap-4 border-b bg-white px-4 py-3 lg:px-6">
+        <header className="flex items-center gap-4 border-b bg-card px-4 py-3 lg:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
           <h2 className="text-sm font-medium text-muted-foreground">Admin Panel</h2>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>

@@ -161,10 +161,10 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                 {editingId === cs.id && (
                   <TableRow key={`${cs.id}-edit`}>
                     <TableCell colSpan={6}>
-                      <div className="bg-zinc-50 rounded-lg p-4 space-y-4 border">
+                      <div className="bg-muted rounded-lg p-4 space-y-4 border">
                         {/* Roles */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-zinc-700">Permissions</p>
+                          <p className="text-sm font-semibold text-foreground">Permissions</p>
                           <div className="flex flex-wrap gap-2">
                             {ALL_ROLES.map(role => (
                               <button
@@ -173,8 +173,8 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                                 onClick={() => toggleRole(role)}
                                 className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                                   editRoles.includes(role)
-                                    ? "bg-zinc-900 text-white border-zinc-900"
-                                    : "bg-white border-zinc-300 hover:bg-zinc-100"
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "bg-card border-border hover:bg-accent"
                                 }`}
                               >
                                 {role.replace(/_/g, " ")}
@@ -185,7 +185,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
 
                         {/* Password */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-zinc-700">Change Password</p>
+                          <p className="text-sm font-semibold text-foreground">Change Password</p>
                           <Input
                             type="password"
                             placeholder="Leave empty to keep current password"

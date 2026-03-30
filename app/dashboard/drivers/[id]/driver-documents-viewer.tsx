@@ -24,7 +24,7 @@ function DocImage({ src, alt }: { src: string; alt: string }) {
   // Convert backend path like "uploads\xxx.jpg" to our proxy URL
   const url = `/api/images/${src.replace(/\\/g, "/")}`;
   return (
-    <div className="relative border rounded overflow-hidden bg-zinc-100">
+    <div className="relative border rounded overflow-hidden bg-muted">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={alt} className="object-contain w-full max-h-[300px]" />
     </div>

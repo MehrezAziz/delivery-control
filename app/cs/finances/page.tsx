@@ -124,17 +124,17 @@ export default function CSFinancesPage() {
       <h1 className="text-2xl font-semibold">Driver Finances</h1>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-lg border bg-card p-4">
           <p className="text-sm text-muted-foreground">Total Drivers</p>
           <p className="text-2xl font-bold">{accounts.length}</p>
         </div>
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-lg border bg-card p-4">
           <p className="text-sm text-muted-foreground">Total Debt</p>
           <p className="text-2xl font-bold text-red-600">
             {accounts.filter(d => d.balance < 0).reduce((s, d) => s + d.balance, 0).toFixed(2)} TND
           </p>
         </div>
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-lg border bg-card p-4">
           <p className="text-sm text-muted-foreground">Total Credit</p>
           <p className="text-2xl font-bold text-green-600">
             {accounts.filter(d => d.balance > 0).reduce((s, d) => s + d.balance, 0).toFixed(2)} TND
@@ -142,7 +142,7 @@ export default function CSFinancesPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-white">
+      <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -178,16 +178,16 @@ export default function CSFinancesPage() {
                 {expandedId === acc.id && (
                   <TableRow key={`${acc.id}-detail`}>
                     <TableCell colSpan={6}>
-                      <div className="bg-zinc-50 rounded-lg p-4 space-y-4 border">
+                      <div className="bg-muted rounded-lg p-4 space-y-4 border">
                         {/* Record transaction form — only for MANAGE_FINANCIAL_REPORTS */}
                         {canManage && (
                           <div className="space-y-3">
-                            <p className="text-sm font-semibold text-zinc-700">Record Transaction</p>
+                            <p className="text-sm font-semibold text-foreground">Record Transaction</p>
                             <div className="flex flex-wrap gap-3 items-end">
                               <div className="space-y-1">
-                                <label className="text-xs text-zinc-500">Type</label>
+                                <label className="text-xs text-muted-foreground">Type</label>
                                 <select value={txType} onChange={e => setTxType(e.target.value)}
-                                  className="h-9 rounded-md border px-3 text-sm bg-white">
+                                  className="h-9 rounded-md border px-3 text-sm bg-card">
                                   <option value="DEPOSIT">Deposit</option>
                                   <option value="ADJUSTMENT">Adjustment</option>
                                   <option value="BONUS">Bonus</option>
@@ -195,12 +195,12 @@ export default function CSFinancesPage() {
                                 </select>
                               </div>
                               <div className="space-y-1">
-                                <label className="text-xs text-zinc-500">Amount</label>
+                                <label className="text-xs text-muted-foreground">Amount</label>
                                 <Input type="number" step="0.01" placeholder="e.g. 50.00"
                                   value={amount} onChange={e => setAmount(e.target.value)} className="w-36" />
                               </div>
                               <div className="space-y-1 flex-1 min-w-[200px]">
-                                <label className="text-xs text-zinc-500">Description</label>
+                                <label className="text-xs text-muted-foreground">Description</label>
                                 <Input placeholder="Optional note" value={description}
                                   onChange={e => setDescription(e.target.value)} />
                               </div>
@@ -214,27 +214,27 @@ export default function CSFinancesPage() {
                         )}
                         {/* Transaction history */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-zinc-700">Recent Transactions</p>
+                          <p className="text-sm font-semibold text-foreground">Recent Transactions</p>
                           {loadingTx ? (
-                            <p className="text-sm text-zinc-400">Loading...</p>
+                            <p className="text-sm text-muted-foreground">Loading...</p>
                           ) : transactions.length === 0 ? (
-                            <p className="text-sm text-zinc-400">No transactions yet</p>
+                            <p className="text-sm text-muted-foreground">No transactions yet</p>
                           ) : (
-                            <div className="max-h-64 overflow-y-auto rounded border bg-white">
+                            <div className="max-h-64 overflow-y-auto rounded border bg-card">
                               <table className="w-full text-sm">
-                                <thead className="bg-zinc-50 sticky top-0">
+                                <thead className="bg-muted sticky top-0">
                                   <tr>
-                                    <th className="text-left px-3 py-2 font-medium text-zinc-500">Date</th>
-                                    <th className="text-left px-3 py-2 font-medium text-zinc-500">Type</th>
-                                    <th className="text-right px-3 py-2 font-medium text-zinc-500">Amount</th>
-                                    <th className="text-right px-3 py-2 font-medium text-zinc-500">Balance After</th>
-                                    <th className="text-left px-3 py-2 font-medium text-zinc-500">Description</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Date</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Type</th>
+                                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Amount</th>
+                                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Balance After</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {transactions.map(tx => (
                                     <tr key={tx.id} className="border-t">
-                                      <td className="px-3 py-2 text-zinc-600">
+                                      <td className="px-3 py-2 text-muted-foreground">
                                         {new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                       </td>
                                       <td className="px-3 py-2">
@@ -245,8 +245,8 @@ export default function CSFinancesPage() {
                                       <td className={`px-3 py-2 text-right font-medium ${tx.amount < 0 ? "text-red-600" : "text-green-600"}`}>
                                         {tx.amount > 0 ? "+" : ""}{tx.amount.toFixed(2)}
                                       </td>
-                                      <td className="px-3 py-2 text-right text-zinc-600">{tx.balanceAfter.toFixed(2)}</td>
-                                      <td className="px-3 py-2 text-zinc-500 max-w-[200px] truncate">{tx.description || "—"}</td>
+                                      <td className="px-3 py-2 text-right text-muted-foreground">{tx.balanceAfter.toFixed(2)}</td>
+                                      <td className="px-3 py-2 text-muted-foreground max-w-[200px] truncate">{tx.description || "—"}</td>
                                     </tr>
                                   ))}
                                 </tbody>

@@ -167,9 +167,9 @@ export function NotificationBell() {
       </Button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border bg-white shadow-lg z-50">
+        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border bg-popover shadow-lg z-50">
           <div className="flex items-center justify-between border-b px-4 py-3">
-            <span className="text-sm font-semibold">Notifications</span>
+            <span className="text-sm font-semibold text-popover-foreground">Notifications</span>
             {unreadCount > 0 && (
               <button onClick={handleMarkAllRead} className="text-xs text-blue-600 hover:underline">
                 Mark all read
@@ -180,16 +180,16 @@ export function NotificationBell() {
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-muted-foreground" />
               </div>
             ) : notifications.length === 0 ? (
-              <div className="py-8 text-center text-sm text-zinc-400">No notifications</div>
+              <div className="py-8 text-center text-sm text-muted-foreground">No notifications</div>
             ) : (
               notifications.map((n) => (
                 <div
                   key={n.id}
                   onClick={() => handleNotificationClick(n)}
-                  className={`flex gap-3 border-b px-4 py-3 cursor-pointer hover:bg-zinc-50 transition-colors ${!n.readAt ? "bg-blue-50/50" : ""}`}
+                  className={`flex gap-3 border-b px-4 py-3 cursor-pointer hover:bg-accent transition-colors ${!n.readAt ? "bg-accent/50" : ""}`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -200,8 +200,8 @@ export function NotificationBell() {
                         {n.priority}
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{n.body}</p>
-                    <span className="text-[10px] text-zinc-400 mt-1">{formatTime(n.sentAt)}</span>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>
+                    <span className="text-[10px] text-muted-foreground mt-1">{formatTime(n.sentAt)}</span>
                   </div>
                   {!n.readAt && <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
                 </div>

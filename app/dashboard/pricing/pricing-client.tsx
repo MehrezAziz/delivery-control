@@ -190,8 +190,8 @@ export default function PricingClient({ countries }: { countries: CountryData[] 
                   onClick={() => toggleCountry(c.id)}
                   className={`px-3 py-1 text-sm rounded border transition-colors ${
                     selectedCountries.includes(c.id)
-                      ? "bg-zinc-900 text-white border-zinc-900"
-                      : "bg-white border-zinc-300 hover:bg-zinc-50"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card border-border hover:bg-accent"
                   }`}
                 >
                   {c.name} ({c.isoCode})

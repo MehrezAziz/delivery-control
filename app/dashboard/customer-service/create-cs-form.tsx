@@ -74,7 +74,7 @@ export default function CreateCSForm() {
             <div className="flex flex-wrap gap-2">
               {ALL_ROLES.map(role => (
                 <button key={role} type="button" onClick={() => toggleRole(role)}
-                  className={`px-2 py-1 text-xs rounded border transition-colors ${roles.includes(role) ? "bg-zinc-900 text-white border-zinc-900" : "bg-white border-zinc-300 hover:bg-zinc-50"}`}>
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${roles.includes(role) ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-accent"}`}>
                   {role.replace(/_/g, " ")}
                 </button>
               ))}

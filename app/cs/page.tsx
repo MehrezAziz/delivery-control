@@ -39,7 +39,7 @@ export default function CSDashboardPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center gap-3">
-          <Headphones className="h-5 w-5 text-zinc-600" />
+          <Headphones className="h-5 w-5 text-muted-foreground" />
           <CardTitle>Welcome, {me.pseudo}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

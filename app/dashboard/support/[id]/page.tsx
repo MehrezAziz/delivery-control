@@ -138,7 +138,7 @@ export default function AdminSupportChatPage() {
             const isStaff = msg.senderType === "CUSTOMER_SERVICE" || msg.senderType === "ADMIN";
             return (
               <div key={msg.id} className={`flex ${isStaff ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isStaff ? (msg.senderType === "ADMIN" ? "bg-red-900 text-white rounded-br-sm" : "bg-zinc-900 text-white rounded-br-sm") : "bg-white border rounded-bl-sm"}`}>
+                <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isStaff ? (msg.senderType === "ADMIN" ? "bg-red-900 text-white rounded-br-sm" : "bg-zinc-900 text-white rounded-br-sm") : "bg-card border rounded-bl-sm"}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`text-xs font-medium ${isStaff ? "text-zinc-300" : "text-muted-foreground"}`}>{getSenderLabel(msg)}</span>
                     <Badge variant={getSenderBadgeVariant(msg.senderType)} className="text-[9px] px-1 py-0 h-4">{msg.senderType}</Badge>
@@ -155,7 +155,7 @@ export default function AdminSupportChatPage() {
         </CardContent>
 
         {isClosed ? (
-          <div className="p-3 bg-zinc-50 text-center text-sm text-muted-foreground border-t">
+          <div className="p-3 bg-muted text-center text-sm text-muted-foreground border-t">
             Ticket is closed. Reopen to continue chatting.
           </div>
         ) : (
