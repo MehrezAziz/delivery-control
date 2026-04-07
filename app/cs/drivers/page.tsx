@@ -20,6 +20,8 @@ interface Driver {
 
 export default function CSDriversPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -47,9 +49,40 @@ export default function CSDriversPage() {
     <div>
       <h1 className="text-2xl font-semibold mb-6">Driver Management</h1>
       <Card>
-        <CardHeader><CardTitle>Drivers ({drivers.length})</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Drivers ({drivers.length})</CardTitle>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name/phone"
+              className="border rounded px-2 py-1 text-sm"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+            >
+              <option value="ALL">All statuses</option>
+              <option value="PENDING_REVIEW">Pending review</option>
+              <option value="INCOMPLETE">Incomplete</option>
+              <option value="VERIFIED">Verified</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="PAUSED">Paused</option>
+            </select>
+          </div>
+        </CardHeader>
         <CardContent>
-          {drivers.length === 0 ? (
+          {drivers.filter((d) => {
+            const name = `${d.firstName || ""} ${d.secondName || ""}`.toLowerCase();
+            const matchSearch =
+              !search ||
+              name.includes(search.toLowerCase()) ||
+              (d.phone || "").toLowerCase().includes(search.toLowerCase());
+            const matchStatus = statusFilter === "ALL" || d.status === statusFilter;
+            return matchSearch && matchStatus;
+          }).length === 0 ? (
             <p className="text-muted-foreground text-sm">No drivers found.</p>
           ) : (
             <Table>
@@ -63,7 +96,17 @@ export default function CSDriversPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {drivers.map(d => (
+                {drivers
+                  .filter((d) => {
+                    const name = `${d.firstName || ""} ${d.secondName || ""}`.toLowerCase();
+                    const matchSearch =
+                      !search ||
+                      name.includes(search.toLowerCase()) ||
+                      (d.phone || "").toLowerCase().includes(search.toLowerCase());
+                    const matchStatus = statusFilter === "ALL" || d.status === statusFilter;
+                    return matchSearch && matchStatus;
+                  })
+                  .map(d => (
                   <TableRow key={d.id}>
                     <TableCell>{d.firstName} {d.secondName}</TableCell>
                     <TableCell>{d.phone || "-"}</TableCell>

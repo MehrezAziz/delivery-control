@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import DriverVerificationHistoryViewer from "@/components/driver-verification-history-viewer";
+import DriverActionTimeline from "@/components/driver-action-timeline";
 
 interface Address {
   id: string; street: string | null; delegation: string; governorate: string; country: string;
@@ -196,6 +198,14 @@ export default function CSDriverDetailPage() {
             </form>
           </CardContent>
         </Card>
+      )}
+
+      {(me?.csRoles?.includes("VERIFY_ACCOUNTS") ?? false) && (
+        <DriverVerificationHistoryViewer driverId={id} />
+      )}
+
+      {(me?.csRoles?.includes("VERIFY_ACCOUNTS") ?? false) && (
+        <DriverActionTimeline driverId={id} />
       )}
 
       {driver.restrictions.length > 0 && (

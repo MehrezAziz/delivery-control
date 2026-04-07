@@ -7,6 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import DriverApprovalForm from "./driver-approval-form";
 import DriverDocumentsViewer from "./driver-documents-viewer";
+import DriverVerificationHistoryViewer from "@/components/driver-verification-history-viewer";
+import DriverActionTimeline from "@/components/driver-action-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,8 @@ export default async function DriverReviewPage({ params }: { params: Promise<{ i
 
       {/* Documents: loaded on demand via client component */}
       <DriverDocumentsViewer driverId={driver.id} hasVerification={hasVerification} />
+      <DriverVerificationHistoryViewer driverId={driver.id} />
+      <DriverActionTimeline driverId={driver.id} />
 
       {/* Restriction history */}
       {driver.user.userRestrictions.length > 0 && (
