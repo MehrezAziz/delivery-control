@@ -42,6 +42,7 @@ function toImageUrl(src: string): string {
 
 function parseRecommendation(ml: Record<string, unknown> | null): {
   recommendation?: string;
+  stage?: string;
   reasons: string[];
   textScore?: number;
   faceSimilarity?: number;
@@ -60,8 +61,9 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
   const textScore = typeof ml.textScore === "number" ? ml.textScore : undefined;
   const faceSimilarity = typeof ml.faceSimilarity === "number" ? ml.faceSimilarity : undefined;
   const livenessPassed = typeof ml.livenessPassed === "boolean" ? ml.livenessPassed : undefined;
+  const stage = typeof ml.stage === "string" ? ml.stage : undefined;
 
-  return { recommendation, reasons, textScore, faceSimilarity, livenessPassed };
+  return { recommendation, stage, reasons, textScore, faceSimilarity, livenessPassed };
 }
 
 export default function DriverVerificationHistoryViewer({
@@ -225,6 +227,10 @@ export default function DriverVerificationHistoryViewer({
                     <div>
                       <span className="text-muted-foreground">System Recommendation:</span>{" "}
                       <Badge variant="secondary">{parsed.recommendation || "N/A"}</Badge>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">ML Pipeline Stage:</span>{" "}
+                      <Badge variant="outline">{parsed.stage || "N/A"}</Badge>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Text Score:</span>{" "}

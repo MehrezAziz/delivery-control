@@ -37,10 +37,7 @@ export default async function DriversApprovalPage({ searchParams }: { searchPara
         orderBy: { submittedAt: "desc" as const },
         take: 1,
         include: {
-          documents: {
-            orderBy: { id: "desc" },
-            take: 1,
-          },
+          documents: true,
         },
       },
     },
@@ -49,7 +46,12 @@ export default async function DriversApprovalPage({ searchParams }: { searchPara
 
   const filtered = pendingDrivers.filter((driver) => {
     if (recommendationFilter === "ALL") return true;
-    const latestDoc = driver.driverVerifications[0]?.documents[0];
+    const docs = driver.driverVerifications[0]?.documents ?? [];
+    const latestDoc =
+      docs.find((d) => {
+        const ml = d.mlAnalysis as Record<string, unknown> | null;
+        return ml?.stage === "ML_ANALYSIS_COMPLETE";
+      }) ?? docs[0];
     const ml = latestDoc?.mlAnalysis as Record<string, unknown> | null;
     const recommendation =
       typeof ml?.recommendation === "string"
@@ -107,7 +109,12 @@ export default async function DriversApprovalPage({ searchParams }: { searchPara
               </TableHeader>
               <TableBody>
                 {filtered.map(d => {
-                  const latestDoc = d.driverVerifications[0]?.documents[0];
+                  const docs = d.driverVerifications[0]?.documents ?? [];
+                  const latestDoc =
+                    docs.find((x) => {
+                      const ml = x.mlAnalysis as Record<string, unknown> | null;
+                      return ml?.stage === "ML_ANALYSIS_COMPLETE";
+                    }) ?? docs[0];
                   const ml = latestDoc?.mlAnalysis as Record<string, unknown> | null;
                   const recommendation =
                     (typeof ml?.recommendation === "string" ? ml.recommendation : undefined) ||
