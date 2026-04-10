@@ -53,6 +53,10 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
   textScore?: number;
   faceSimilarity?: number;
   livenessPassed?: boolean;
+  ocrDeclaredMismatch?: boolean;
+  informationMatchScore?: number;
+  textClarityScore?: number;
+  textScoreFormula?: string | null;
   usedTranslation?: boolean;
   translationTargetLocale?: string | null;
   translationError?: string | null;
@@ -70,9 +74,15 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
   const textScore = typeof ml.textScore === "number" ? ml.textScore : undefined;
   const faceSimilarity = typeof ml.faceSimilarity === "number" ? ml.faceSimilarity : undefined;
   const livenessPassed = typeof ml.livenessPassed === "boolean" ? ml.livenessPassed : undefined;
+  const ocrDeclaredMismatch =
+    typeof ml.ocrDeclaredMismatch === "boolean" ? ml.ocrDeclaredMismatch : undefined;
   const stage = typeof ml.stage === "string" ? ml.stage : undefined;
 
   const scoring = ml.scoring && typeof ml.scoring === "object" ? (ml.scoring as Record<string, unknown>) : null;
+  const informationMatchScore =
+    typeof scoring?.informationMatchScore === "number" ? scoring.informationMatchScore : undefined;
+  const textClarityScore = typeof scoring?.textClarityScore === "number" ? scoring.textClarityScore : undefined;
+  const textScoreFormula = typeof scoring?.textScoreFormula === "string" ? scoring.textScoreFormula : null;
   const usedTranslation = scoring?.usedTranslation === true ? true : undefined;
   const translationTargetLocale =
     typeof scoring?.translationTargetLocale === "string" ? scoring.translationTargetLocale : null;
@@ -86,6 +96,10 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
     textScore,
     faceSimilarity,
     livenessPassed,
+    ocrDeclaredMismatch,
+    informationMatchScore,
+    textClarityScore,
+    textScoreFormula,
     usedTranslation,
     translationTargetLocale,
     translationError,
@@ -395,6 +409,22 @@ export default function DriverVerificationHistoryViewer({
                     <div className="sm:col-span-2">
                       <span className="text-muted-foreground">Text Score:</span>{" "}
                       {parsed.textScore?.toFixed(3) ?? "-"}
+                      {typeof parsed.informationMatchScore === "number" &&
+                      typeof parsed.textClarityScore === "number" &&
+                      typeof parsed.textScore === "number" ? (
+                        <div className="mt-1 text-xs text-muted-foreground space-y-1">
+                          <p>Information matches (50%): {parsed.informationMatchScore.toFixed(2)}</p>
+                          <p>Text clarity (50%): {parsed.textClarityScore.toFixed(2)}</p>
+                          <p>
+                            text score = {parsed.informationMatchScore.toFixed(2)} +{" "}
+                            {parsed.textClarityScore.toFixed(2)} = {parsed.textScore.toFixed(2)}
+                          </p>
+                        </div>
+                      ) : parsed.textScoreFormula ? (
+                        <span className="block text-xs text-muted-foreground mt-1">
+                          text score = {parsed.textScoreFormula}
+                        </span>
+                      ) : null}
                       {parsed.usedTranslation ? (
                         <Badge variant="outline" className="ml-2 text-xs">
                           Compared after translation → {parsed.translationTargetLocale ?? "en"}
@@ -417,6 +447,16 @@ export default function DriverVerificationHistoryViewer({
                         : parsed.livenessPassed
                           ? "Passed"
                           : "Failed"}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">OCR vs Declared:</span>{" "}
+                      {parsed.ocrDeclaredMismatch === undefined ? (
+                        "-"
+                      ) : parsed.ocrDeclaredMismatch ? (
+                        <Badge variant="destructive">Mismatch</Badge>
+                      ) : (
+                        <Badge className="bg-green-600 hover:bg-green-700">Match</Badge>
+                      )}
                     </div>
                   </div>
 
