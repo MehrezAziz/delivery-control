@@ -52,6 +52,8 @@ export async function GET(
       lastName: doc.lastName,
       idNumber: doc.idNumber,
       dateOfBirth: doc.dateOfBirth,
+      translationLocale: doc.translationLocale,
+      translationData: doc.translationData,
     })),
   }));
 

@@ -26,7 +26,13 @@ type VerificationDoc = {
   lastName: string | null;
   idNumber: string | null;
   dateOfBirth: string | null;
+  translationLocale: string | null;
+  translationData: Record<string, unknown> | null;
 };
+
+type IdentityFieldBundle = Partial<
+  Record<"firstName" | "lastName" | "idNumber" | "dateOfBirth", string>
+>;
 
 type VerificationHistoryItem = {
   id: string;
@@ -47,6 +53,9 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
   textScore?: number;
   faceSimilarity?: number;
   livenessPassed?: boolean;
+  usedTranslation?: boolean;
+  translationTargetLocale?: string | null;
+  translationError?: string | null;
 } {
   if (!ml) return { reasons: [] };
 
@@ -63,7 +72,158 @@ function parseRecommendation(ml: Record<string, unknown> | null): {
   const livenessPassed = typeof ml.livenessPassed === "boolean" ? ml.livenessPassed : undefined;
   const stage = typeof ml.stage === "string" ? ml.stage : undefined;
 
-  return { recommendation, stage, reasons, textScore, faceSimilarity, livenessPassed };
+  const scoring = ml.scoring && typeof ml.scoring === "object" ? (ml.scoring as Record<string, unknown>) : null;
+  const usedTranslation = scoring?.usedTranslation === true ? true : undefined;
+  const translationTargetLocale =
+    typeof scoring?.translationTargetLocale === "string" ? scoring.translationTargetLocale : null;
+  const translationError =
+    typeof scoring?.translationError === "string" ? scoring.translationError : null;
+
+  return {
+    recommendation,
+    stage,
+    reasons,
+    textScore,
+    faceSimilarity,
+    livenessPassed,
+    usedTranslation,
+    translationTargetLocale,
+    translationError,
+  };
+}
+
+function formatDob(v: string | Date | null | undefined): string {
+  if (v == null) return "—";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "string") return v.slice(0, 10);
+  return String(v);
+}
+
+function IdentityFieldRows({
+  title,
+  original,
+  translated,
+  localeLabel,
+}: {
+  title: string;
+  original: IdentityFieldBundle;
+  translated: IdentityFieldBundle;
+  localeLabel: string;
+}) {
+  const keys: (keyof IdentityFieldBundle)[] = ["firstName", "lastName", "idNumber", "dateOfBirth"];
+  const labels: Record<keyof IdentityFieldBundle, string> = {
+    firstName: "First name",
+    lastName: "Last name",
+    idNumber: "ID number",
+    dateOfBirth: "Date of birth",
+  };
+  const rows = keys.filter((k) => original[k] || translated[k]);
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</p>
+      {rows.map((k) => (
+        <div key={k} className="text-sm grid gap-1 sm:grid-cols-2">
+          <div>
+            <span className="text-muted-foreground">{labels[k]}: </span>
+            <span className="font-medium">{original[k] ?? "—"}</span>
+            <span className="block text-xs text-muted-foreground">(as captured / declared)</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">{labels[k]} ({localeLabel}): </span>
+            <span className="font-medium text-primary">{translated[k] ?? "—"}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TranslationEvidencePanel({
+  translationLocale,
+  translationData,
+  doc,
+}: {
+  translationLocale: string | null;
+  translationData: Record<string, unknown> | null;
+  doc: VerificationDoc;
+}) {
+  if (!translationData || typeof translationData !== "object") {
+    const hasAny =
+      Boolean(doc.firstName) || Boolean(doc.lastName) || Boolean(doc.idNumber) || Boolean(doc.dateOfBirth);
+    return (
+      <div className="space-y-3 border-t pt-3 mt-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold">Translated identity (staff review)</p>
+          <Badge variant="secondary">Not available yet</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          No stored translation for this submission. This can happen for older verifications (before translation was
+          enabled) or if translation failed.
+        </p>
+        {hasAny ? (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Original identity fields (document record)
+            </p>
+            <p className="text-sm">
+              {[doc.firstName, doc.lastName].filter(Boolean).join(" ") || "—"}
+              {doc.idNumber ? ` · ID ${doc.idNumber}` : ""}
+              {doc.dateOfBirth ? ` · DOB ${formatDob(doc.dateOfBirth)}` : ""}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const err = typeof translationData.error === "string" ? translationData.error : undefined;
+  const target =
+    (typeof translationData.targetLocale === "string" ? translationData.targetLocale : null) ||
+    translationLocale ||
+    "en";
+  const provider = typeof translationData.provider === "string" ? translationData.provider : "google";
+  const at =
+    typeof translationData.translatedAt === "string"
+      ? new Date(translationData.translatedAt).toLocaleString()
+      : null;
+
+  const od = translationData.originalDeclared as IdentityFieldBundle | undefined;
+  const oe = translationData.originalExtracted as IdentityFieldBundle | undefined;
+  const td = translationData.translatedDeclared as IdentityFieldBundle | undefined;
+  const te = translationData.translatedExtracted as IdentityFieldBundle | undefined;
+
+  return (
+    <div className="space-y-3 border-t pt-3 mt-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold">Translated identity (staff review)</p>
+        <Badge variant="outline">{provider}</Badge>
+        <Badge variant="secondary">→ {target}</Badge>
+        {at ? <span className="text-xs text-muted-foreground">{at}</span> : null}
+      </div>
+      {err ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          Translation failed: {err}. Text score used original strings only.
+        </p>
+      ) : null}
+      {od && td ? (
+        <IdentityFieldRows
+          title="Declared (User + document fields)"
+          original={od}
+          translated={td}
+          localeLabel={target}
+        />
+      ) : null}
+      {oe && te ? (
+        <IdentityFieldRows
+          title="Extracted from document (OCR)"
+          original={oe}
+          translated={te}
+          localeLabel={target}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 export default function DriverVerificationHistoryViewer({
@@ -232,9 +392,19 @@ export default function DriverVerificationHistoryViewer({
                       <span className="text-muted-foreground">ML Pipeline Stage:</span>{" "}
                       <Badge variant="outline">{parsed.stage || "N/A"}</Badge>
                     </div>
-                    <div>
+                    <div className="sm:col-span-2">
                       <span className="text-muted-foreground">Text Score:</span>{" "}
                       {parsed.textScore?.toFixed(3) ?? "-"}
+                      {parsed.usedTranslation ? (
+                        <Badge variant="outline" className="ml-2 text-xs">
+                          Compared after translation → {parsed.translationTargetLocale ?? "en"}
+                        </Badge>
+                      ) : null}
+                      {parsed.translationError ? (
+                        <span className="block text-xs text-amber-700 dark:text-amber-400 mt-1">
+                          Translation note: {parsed.translationError}
+                        </span>
+                      ) : null}
                     </div>
                     <div>
                       <span className="text-muted-foreground">Face Similarity:</span>{" "}
@@ -260,6 +430,27 @@ export default function DriverVerificationHistoryViewer({
                       </ul>
                     </div>
                   )}
+
+                  <TranslationEvidencePanel
+                    translationLocale={doc.translationLocale ?? null}
+                    translationData={doc.translationData}
+                    doc={doc}
+                  />
+
+                  <div className="grid gap-2 sm:grid-cols-2 text-xs text-muted-foreground border-t pt-2">
+                    <p>
+                      <span className="font-medium text-foreground">Document record: </span>
+                      {doc.firstName || doc.lastName || doc.idNumber || doc.dateOfBirth ? (
+                        <>
+                          {[doc.firstName, doc.lastName].filter(Boolean).join(" ") || "—"}
+                          {doc.idNumber ? ` · ID ${doc.idNumber}` : ""}
+                          {doc.dateOfBirth ? ` · DOB ${formatDob(doc.dateOfBirth)}` : ""}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </p>
+                  </div>
 
                   <div className="grid gap-3 sm:grid-cols-3">
                     {doc.selfieImage && (
