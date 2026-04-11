@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { DriverStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireCS, hasCSRole } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCS();
@@ -12,6 +14,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const { status, reason } = await req.json();
+  const normalized = String(status ?? "")
+    .trim()
+    .toUpperCase();
 
   const driver = await prisma.driver.findUnique({
     where: { id },
@@ -24,38 +29,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Driver not found" }, { status: 404 });
   }
 
-  // Can't set to INCOMPLETE if has documents
-  if (status === "INCOMPLETE" && driver.driverVerifications.length > 0) {
+  if (normalized === "INCOMPLETE" && driver.driverVerifications.length > 0) {
     return NextResponse.json({ error: "Cannot set status to INCOMPLETE when driver has submitted documents" }, { status: 400 });
   }
 
   const oldStatus = driver.status;
 
-  await prisma.driver.update({
-    where: { id },
-    data: { status, suspendedAt: status === "SUSPENDED" ? new Date() : undefined },
-  });
-
-  // Create restriction if suspending/rejecting
-  if (["SUSPENDED", "REJECTED"].includes(status) && reason) {
-    const restrictionType = status === "SUSPENDED" ? "SUSPENSION" : "WARNING";
-    await prisma.userRestriction.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.driver.update({
+      where: { id },
       data: {
-        userId: driver.user.id,
-        type: restrictionType,
-        reason,
-        imposedBy: auth.superUserId,
+        status: normalized as DriverStatus,
+        suspendedAt: normalized === "SUSPENDED" ? new Date() : undefined,
       },
     });
-  }
 
-  // Lift restrictions if going back to active statuses
-  if (["VERIFIED", "PENDING_REVIEW"].includes(status) && ["SUSPENDED", "REJECTED"].includes(oldStatus)) {
-    await prisma.userRestriction.updateMany({
-      where: { userId: driver.user.id, liftedAt: null },
-      data: { liftedAt: new Date() },
-    });
-  }
+    if (["SUSPENDED", "REJECTED"].includes(normalized) && reason) {
+      const restrictionType = normalized === "SUSPENDED" ? "SUSPENSION" : "WARNING";
+      await tx.userRestriction.create({
+        data: {
+          userId: driver.userId,
+          type: restrictionType,
+          reason,
+          imposedBy: auth.superUserId,
+        },
+      });
+    }
+
+    if (["VERIFIED", "PENDING_REVIEW", "INCOMPLETE"].includes(normalized)) {
+      const now = new Date();
+      await liftAllOpenRestrictionsForUserIds(tx, [driver.userId, driver.user.id], now);
+    }
+  });
 
   try {
     await logAction({
@@ -65,7 +70,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       targetType: "DRIVER",
       targetId: id,
       oldValue: oldStatus,
-      newValue: status,
+      newValue: normalized,
       reason,
     });
   } catch (logErr) {

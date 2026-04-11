@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
 
 async function initializeVerifiedDriver(driverId: string) {
   await prisma.$transaction(async (tx) => {
@@ -48,7 +49,7 @@ async function initializeVerifiedDriver(driverId: string) {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
   const { id } = await params;
-  const { action, reason, userId } = await req.json();
+  const { action, reason } = await req.json();
 
   const driver = await prisma.driver.findUnique({
     where: { id },
@@ -66,48 +67,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const oldStatus = driver.status;
   const newStatus = action === "approve" ? "VERIFIED" : "REJECTED";
 
-  // Update driver status
-  await prisma.driver.update({
-    where: { id },
-    data: {
-      status: newStatus,
-      approvedAt: action === "approve" ? new Date() : null,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.driver.update({
+      where: { id },
+      data: {
+        status: newStatus,
+        approvedAt: action === "approve" ? new Date() : null,
+      },
+    });
+
+    if (action === "approve") {
+      const now = new Date();
+      await liftAllOpenRestrictionsForUserIds(tx, [driver.userId], now);
+      if (latestVerification) {
+        await tx.driverVerification.update({
+          where: { id: latestVerification.id },
+          data: { verifiedAt: new Date() },
+        });
+        await tx.document.updateMany({
+          where: { verificationId: latestVerification.id },
+          data: { verificationStatus: "VERIFIED" },
+        });
+      }
+    }
+
+    if (action === "reject") {
+      if (reason) {
+        await tx.userRestriction.create({
+          data: {
+            userId: driver.userId,
+            type: "WARNING",
+            reason,
+            imposedBy: auth.superUserId,
+          },
+        });
+      }
+      if (latestVerification) {
+        await tx.document.updateMany({
+          where: { verificationId: latestVerification.id },
+          data: { verificationStatus: "REJECTED" },
+        });
+      }
+    }
   });
 
-  // On approve: update verification records + initialize driver entities
   if (action === "approve") {
-    if (latestVerification) {
-      await prisma.driverVerification.update({
-        where: { id: latestVerification.id },
-        data: { verifiedAt: new Date() },
-      });
-      await prisma.document.updateMany({
-        where: { verificationId: latestVerification.id },
-        data: { verificationStatus: "VERIFIED" },
-      });
-    }
     await initializeVerifiedDriver(id);
-  }
-
-  // If rejecting, save reason in UserRestriction and update documents
-  if (action === "reject") {
-    if (reason) {
-      await prisma.userRestriction.create({
-        data: {
-          userId,
-          type: "WARNING",
-          reason,
-          imposedBy: auth.superUserId,
-        },
-      });
-    }
-    if (latestVerification) {
-      await prisma.document.updateMany({
-        where: { verificationId: latestVerification.id },
-        data: { verificationStatus: "REJECTED" },
-      });
-    }
   }
 
   try {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasCSRole, requireAuth } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
 import { NotificationType, NotificationPriority, NotificationChannel, NotificationDeliveryStatus } from "@prisma/client";
 
 async function initializeVerifiedDriver(driverId: string) {
@@ -142,10 +143,14 @@ export async function POST(
       }
     }
 
+    if (action === "approve") {
+      await liftAllOpenRestrictionsForUserIds(tx, [driver.userId], new Date());
+    }
+
     if (action === "reject") {
       await tx.userRestriction.create({
         data: {
-          userId: driver.user.id,
+          userId: driver.userId,
           type: "WARNING",
           reason,
           imposedBy: auth.superUserId,

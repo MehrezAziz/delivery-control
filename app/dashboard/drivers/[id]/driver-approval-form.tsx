@@ -21,7 +21,7 @@ export default function DriverApprovalForm({ driverId, userId, currentStatus, ha
       const res = await fetch(`/api/drivers/${driverId}/approval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason, userId }),
+        body: JSON.stringify({ action, reason }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed"); return; }

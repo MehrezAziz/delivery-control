@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, hasCSRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAction } from "@/lib/action-log";
+import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
 
 // GET driver account detail with transactions
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -125,8 +126,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         updateData.negativeBalanceSince = null;
         // Un-pause the driver if they were paused
         const driver = await tx.driver.findUnique({ where: { id: account.driverId } });
-        if (driver && driver.status === 'PAUSED') {
-          await tx.driver.update({ where: { id: driver.id }, data: { status: 'VERIFIED' } });
+        if (driver && driver.status === "PAUSED") {
+          await tx.driver.update({ where: { id: driver.id }, data: { status: "VERIFIED" } });
+          await liftAllOpenRestrictionsForUserIds(tx, [driver.userId], new Date());
         }
       }
       await tx.driverAccount.update({
