@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet,
+  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet, Bot,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -21,6 +21,7 @@ const navItems = [
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/support", label: "Support Tickets", icon: MessageSquare },
+  { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },
   { href: "/dashboard/restrictions", label: "Restrictions", icon: Shield },
   { href: "/dashboard/system-config", label: "System Config", icon: Settings },
   { href: "/dashboard/action-logs", label: "Action Logs", icon: ClipboardList },

@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 interface Message {
   id: string;
   senderId: string;
-  senderType: "USER" | "CUSTOMER_SERVICE" | "ADMIN";
+  senderType: "USER" | "CUSTOMER_SERVICE" | "ADMIN" | "BOT";
   content: string;
   image: string | null;
   timestamp: string;
@@ -95,6 +95,16 @@ export default function CSSupportChatPage() {
   const isClosed = ticket.status === "CLOSED";
   const isLocked = ticket._locked === true;
 
+  function getSenderLabel(msg: Message) {
+    if (msg.senderType === "BOT") return "Assistant";
+    if (msg.senderType === "ADMIN") return "Admin";
+    if (msg.senderType === "CUSTOMER_SERVICE") return ticket?.customerService?.superUser?.pseudo || "CS Agent";
+    if (msg.senderType === "USER") {
+      return [ticket?.user?.firstName, ticket?.user?.secondName].filter(Boolean).join(" ") || "User";
+    }
+    return "User";
+  }
+
   // Locked: ticket is assigned to another CS agent
   if (isLocked) {
     return (
@@ -155,11 +165,34 @@ export default function CSSupportChatPage() {
 
           {ticket.messages.map(msg => {
             const isStaff = msg.senderType === "CUSTOMER_SERVICE" || msg.senderType === "ADMIN";
+            const isBot = msg.senderType === "BOT";
             return (
               <div key={msg.id} className={`flex ${isStaff ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isStaff ? (msg.senderType === "ADMIN" ? "bg-red-900 text-white rounded-br-sm" : "bg-zinc-900 text-white rounded-br-sm") : "bg-card border rounded-bl-sm"}`}>
-                  {!isStaff && <div className="text-xs text-muted-foreground font-medium mb-1">{ticket.user.firstName || "User"}</div>}
-                  {msg.senderType === "ADMIN" && <div className="flex items-center gap-1 mb-1"><Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">ADMIN</Badge></div>}
+                <div
+                  className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                    isStaff
+                      ? msg.senderType === "ADMIN"
+                        ? "bg-red-900 text-white rounded-br-sm"
+                        : "bg-zinc-900 text-white rounded-br-sm"
+                      : isBot
+                        ? "bg-emerald-950/40 border border-emerald-800/60 text-foreground rounded-bl-sm"
+                        : "bg-card border rounded-bl-sm"
+                  }`}
+                >
+                  {!isStaff && (
+                    <div
+                      className={`text-xs font-medium mb-1 ${isBot ? "text-emerald-200" : "text-muted-foreground"}`}
+                    >
+                      {getSenderLabel(msg)}
+                    </div>
+                  )}
+                  {msg.senderType === "ADMIN" && (
+                    <div className="flex items-center gap-1 mb-1">
+                      <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">
+                        ADMIN
+                      </Badge>
+                    </div>
+                  )}
                   <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
                   <div className={`text-[10px] mt-1 ${isStaff ? "text-zinc-400 text-right" : "text-muted-foreground"}`}>
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

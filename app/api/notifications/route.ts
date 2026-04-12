@@ -7,8 +7,8 @@ export async function GET(req: NextRequest) {
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const page = parseInt(searchParams.get("page") || "1");
-  const limit = parseInt(searchParams.get("limit") || "20");
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10) || 20));
   const status = searchParams.get("status");
   const skip = (page - 1) * limit;
 
@@ -16,10 +16,34 @@ export async function GET(req: NextRequest) {
   if (status === "read") where.readAt = { not: null };
   if (status === "unread") where.readAt = null;
 
-  const [data, total] = await Promise.all([
-    prisma.notification.findMany({ where, orderBy: { sentAt: "desc" }, skip, take: limit }),
+  const [rows, total] = await Promise.all([
+    prisma.notification.findMany({
+      where,
+      orderBy: { sentAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        type: true,
+        priority: true,
+        relatedEntityType: true,
+        relatedEntityId: true,
+        sentAt: true,
+        readAt: true,
+      },
+    }),
     prisma.notification.count({ where }),
   ]);
+
+  const data = rows.map((n) => ({
+    ...n,
+    title: n.title ?? "",
+    body: n.body ?? "",
+    sentAt: n.sentAt instanceof Date ? n.sentAt.toISOString() : String(n.sentAt),
+    readAt: n.readAt ? (n.readAt instanceof Date ? n.readAt.toISOString() : String(n.readAt)) : null,
+  }));
 
   return NextResponse.json({
     data,

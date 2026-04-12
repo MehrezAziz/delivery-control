@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 interface Message {
   id: string;
   senderId: string;
-  senderType: "USER" | "CUSTOMER_SERVICE" | "ADMIN";
+  senderType: "USER" | "CUSTOMER_SERVICE" | "ADMIN" | "BOT";
   content: string;
   image: string | null;
   timestamp: string;
@@ -89,12 +89,17 @@ export default function AdminSupportChatPage() {
   const isClosed = ticket.status === "CLOSED";
 
   function getSenderLabel(msg: Message) {
+    if (msg.senderType === "BOT") return "Assistant";
     if (msg.senderType === "ADMIN") return "Admin";
     if (msg.senderType === "CUSTOMER_SERVICE") return ticket?.customerService?.superUser?.pseudo || "CS Agent";
-    return ticket?.user?.firstName || "User";
+    if (msg.senderType === "USER") {
+      return [ticket?.user?.firstName, ticket?.user?.secondName].filter(Boolean).join(" ") || "User";
+    }
+    return "User";
   }
 
   function getSenderBadgeVariant(senderType: string): "default" | "secondary" | "destructive" | "outline" {
+    if (senderType === "BOT") return "secondary";
     if (senderType === "ADMIN") return "destructive";
     if (senderType === "CUSTOMER_SERVICE") return "default";
     return "outline";
@@ -136,12 +141,31 @@ export default function AdminSupportChatPage() {
 
           {ticket.messages.map(msg => {
             const isStaff = msg.senderType === "CUSTOMER_SERVICE" || msg.senderType === "ADMIN";
+            const isBot = msg.senderType === "BOT";
             return (
               <div key={msg.id} className={`flex ${isStaff ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isStaff ? (msg.senderType === "ADMIN" ? "bg-red-900 text-white rounded-br-sm" : "bg-zinc-900 text-white rounded-br-sm") : "bg-card border rounded-bl-sm"}`}>
+                <div
+                  className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                    isStaff
+                      ? msg.senderType === "ADMIN"
+                        ? "bg-red-900 text-white rounded-br-sm"
+                        : "bg-zinc-900 text-white rounded-br-sm"
+                      : isBot
+                        ? "bg-emerald-950/40 border border-emerald-800/60 text-foreground rounded-bl-sm"
+                        : "bg-card border rounded-bl-sm"
+                  }`}
+                >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-medium ${isStaff ? "text-zinc-300" : "text-muted-foreground"}`}>{getSenderLabel(msg)}</span>
-                    <Badge variant={getSenderBadgeVariant(msg.senderType)} className="text-[9px] px-1 py-0 h-4">{msg.senderType}</Badge>
+                    <span
+                      className={`text-xs font-medium ${
+                        isStaff ? "text-zinc-300" : isBot ? "text-emerald-200" : "text-muted-foreground"
+                      }`}
+                    >
+                      {getSenderLabel(msg)}
+                    </span>
+                    <Badge variant={getSenderBadgeVariant(msg.senderType)} className="text-[9px] px-1 py-0 h-4">
+                      {isBot ? "BOT" : msg.senderType}
+                    </Badge>
                   </div>
                   <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
                   <div className={`text-[10px] mt-1 ${isStaff ? "text-zinc-400 text-right" : "text-muted-foreground"}`}>

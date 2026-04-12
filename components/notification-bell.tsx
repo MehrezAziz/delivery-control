@@ -35,10 +35,13 @@ export function NotificationBell() {
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
     try {
-      const res = await fetch("/api/notifications/unread-count");
+      const res = await fetch("/api/notifications/unread-count", {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (res.ok) {
         const data = await res.json();
-        setUnreadCount(data.count);
+        setUnreadCount(typeof data.count === "number" ? data.count : 0);
       }
     } catch {}
   }, []);
@@ -47,10 +50,14 @@ export function NotificationBell() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/notifications?limit=10");
+      const res = await fetch("/api/notifications?limit=10&page=1", {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.data || []);
+        const json = await res.json();
+        const rows = Array.isArray(json) ? json : json.data ?? [];
+        setNotifications(Array.isArray(rows) ? rows : []);
       }
     } catch {} finally {
       setLoading(false);
@@ -105,7 +112,7 @@ export function NotificationBell() {
 
   const handleMarkAllRead = async () => {
     try {
-      await fetch("/api/notifications/read-all", { method: "PATCH" });
+      await fetch("/api/notifications/read-all", { method: "PATCH", credentials: "include" });
       setUnreadCount(0);
       setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
     } catch {}
@@ -113,7 +120,7 @@ export function NotificationBell() {
 
   const handleMarkRead = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+      await fetch(`/api/notifications/${id}/read`, { method: "PATCH", credentials: "include" });
       setUnreadCount((c) => Math.max(0, c - 1));
       setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, readAt: new Date().toISOString() } : n));
     } catch {}
@@ -193,14 +200,16 @@ export function NotificationBell() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium truncate ${!n.readAt ? "font-semibold" : ""}`}>
-                        {n.title}
+                      <span className={`text-sm font-medium truncate text-popover-foreground ${!n.readAt ? "font-semibold" : ""}`}>
+                        {n.title || "Notification"}
                       </span>
-                      <span className={`text-[10px] font-bold ${priorityColor[n.priority] || ""}`}>
+                      <span className={`text-[10px] font-bold shrink-0 ${priorityColor[n.priority] || "text-muted-foreground"}`}>
                         {n.priority}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>
+                    <p className="text-xs mt-1 line-clamp-3 break-words text-popover-foreground/90">
+                      {(n.body ?? "").trim() || "—"}
+                    </p>
                     <span className="text-[10px] text-muted-foreground mt-1">{formatTime(n.sentAt)}</span>
                   </div>
                   {!n.readAt && <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
