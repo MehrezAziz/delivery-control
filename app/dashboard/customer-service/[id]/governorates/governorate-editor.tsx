@@ -94,9 +94,9 @@ export default function GovernorateEditor({ csId, pseudo }: { csId: string; pseu
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/dashboard/customer-service">← Back to CS list</Link>
-        </Button>
+        <Link href="/dashboard/customer-service">
+          <Button variant="outline" size="sm">← Back to CS list</Button>
+        </Link>
         <Button onClick={() => void save()} disabled={saving}>
           {saving ? "Saving…" : "Save selection"}
         </Button>

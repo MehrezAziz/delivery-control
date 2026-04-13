@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 export default function DisputesPage() {
   const [disputes, setDisputes] = useState<any[]>([]);
+  const [arrivalConflicts, setArrivalConflicts] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [resolution, setResolution] = useState("");
@@ -20,7 +21,15 @@ export default function DisputesPage() {
 
   const load = () => {
     const url = statusFilter === "ALL" ? "/api/disputes" : `/api/disputes?status=${statusFilter}`;
-    fetch(url).then(r => r.json()).then(setDisputes).finally(() => setLoading(false));
+    Promise.all([
+      fetch(url).then((r) => r.json()),
+      fetch("/api/admin/order-arrival-conflicts").then((r) => r.json()),
+    ])
+      .then(([disputesData, conflictsData]) => {
+        setDisputes(disputesData || []);
+        setArrivalConflicts(conflictsData?.conflicts || []);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [statusFilter]);
@@ -98,6 +107,55 @@ export default function DisputesPage() {
                         <Button size="sm" variant="outline" className="text-green-600 border-green-300" onClick={() => handleUpdate(d.id, { status: "RESOLVED", resolution: "Marked as delivered by admin" })}>Mark Delivered</Button>
                       )}
                     </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Arrival Incidents (customer rejected arrived driver)</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Driver</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Quick access</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+              ) : arrivalConflicts.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No arrival incidents</TableCell></TableRow>
+              ) : arrivalConflicts.map((c: any) => (
+                <TableRow key={c.id}>
+                  <TableCell>
+                    <Link href={`/dashboard/orders/${c.orderId}`} className="text-blue-600 hover:underline font-mono text-sm">
+                      {c.orderId.slice(0, 8)}
+                    </Link>
+                    <div className="text-xs text-muted-foreground mt-1 max-w-[280px] truncate">
+                      Reason: {c.customerReason}
+                    </div>
+                  </TableCell>
+                  <TableCell>{c.customer?.user?.firstName} {c.customer?.user?.secondName}</TableCell>
+                  <TableCell>{c.driver?.user?.firstName} {c.driver?.user?.secondName}</TableCell>
+                  <TableCell>
+                    <Badge variant={c.status === "PENDING" ? "destructive" : "secondary"}>
+                      {c.status === "PENDING" ? "OPEN" : "CLOSED"}
+                    </Badge>
+                    <div className="text-xs text-muted-foreground mt-1">{c.status}</div>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{new Date(c.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <Link href="/dashboard/order-arrival-conflicts" className="text-blue-600 hover:underline text-sm">
+                      Open incident desk
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}

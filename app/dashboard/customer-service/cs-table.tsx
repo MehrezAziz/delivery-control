@@ -150,9 +150,9 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2 flex-wrap">
-                      <Button variant="secondary" size="sm" asChild>
-                        <Link href={`/dashboard/customer-service/${cs.id}/governorates`}>Coverage</Link>
-                      </Button>
+                      <Link href={`/dashboard/customer-service/${cs.id}/governorates`}>
+                        <Button variant="secondary" size="sm">Coverage</Button>
+                      </Link>
                       {editingId === cs.id ? (
                         <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancel</Button>
                       ) : (
