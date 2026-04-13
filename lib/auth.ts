@@ -50,6 +50,15 @@ export async function requireCS(): Promise<AdminPayload> {
   return payload;
 }
 
+/** CS JWT only; checks `csRoles` on the token (e.g. MANAGE_DISPUTES). */
+export async function requireCustomerServicePermission(permission: string): Promise<AdminPayload> {
+  const payload = await requireCS();
+  if (!(payload.csRoles || []).includes(permission)) {
+    throw new Error("Permission denied");
+  }
+  return payload;
+}
+
 export function hasCSRole(payload: AdminPayload, role: string): boolean {
   return payload.role === "ADMIN" || (payload.csRoles || []).includes(role);
 }

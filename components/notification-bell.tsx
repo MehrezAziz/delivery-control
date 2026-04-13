@@ -135,7 +135,7 @@ export function NotificationBell() {
       n.type === "CUSTOMER_REJECTED_ARRIVED_DRIVER_CS" ||
       n.type === "ARRIVAL_CONFLICT_DRIVER_FEEDBACK_CS"
     ) {
-      router.push("/dashboard/order-arrival-conflicts");
+      router.push(`${basePath}/order-arrival-conflicts`);
     } else if (n.relatedEntityType === 'SupportTicket' && n.relatedEntityId) {
       router.push(`${basePath}/support/${n.relatedEntityId}`);
     } else if (n.relatedEntityType === 'Dispute' && n.relatedEntityId) {

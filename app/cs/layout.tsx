@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle, Wallet,
+  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle, Wallet, ShieldAlert,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -40,6 +40,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs/orders", label: "Orders", icon: Package },
     { href: "/cs/support", label: "Support", icon: MessageSquare },
     { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },
+    { href: "/cs/order-arrival-conflicts", label: "Arrival incidents", icon: ShieldAlert },
     { href: "/cs/finances", label: "Finances", icon: Wallet },
   ];
 
