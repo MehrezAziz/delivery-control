@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -44,6 +46,10 @@ export function OrderArrivalConflictsView(props: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [acting, setActing] = useState<string | null>(null);
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const [reasonText, setReasonText] = useState("");
+  const [reasonTargetId, setReasonTargetId] = useState<string | null>(null);
+  const [reasonAction, setReasonAction] = useState<"FORGIVE" | "SUSPEND_CUSTOMER" | "SUSPEND_DRIVER" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,18 +71,39 @@ export function OrderArrivalConflictsView(props: {
     void load();
   }, [load]);
 
-  async function resolve(id: string, action: "FORGIVE" | "SUSPEND_CUSTOMER" | "SUSPEND_DRIVER") {
-    if (action !== "FORGIVE" && !window.confirm(`Confirm ${action.replace(/_/g, " ")}?`)) return;
-    setActing(id + action);
+  function openReasonDialog(
+    id: string,
+    action: "FORGIVE" | "SUSPEND_CUSTOMER" | "SUSPEND_DRIVER" | null,
+    currentNote?: string | null,
+  ) {
+    setReasonTargetId(id);
+    setReasonAction(action);
+    setReasonText(currentNote || "");
+    setReasonOpen(true);
+  }
+
+  async function submitReason() {
+    if (!reasonTargetId) return;
+    const currentAction = reasonAction;
+    const id = reasonTargetId;
+    if (currentAction && currentAction !== "FORGIVE" && !window.confirm(`Confirm ${currentAction.replace(/_/g, " ")}?`)) return;
+    setActing(id + (currentAction || "NOTE"));
     try {
-      const res = await fetch(`${resolveUrlPrefix}/${id}/resolve`, {
+      const res = await fetch(`${resolveUrlPrefix}/${reasonTargetId}/resolve`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          ...(currentAction ? { action: currentAction } : {}),
+          note: reasonText.trim() || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
+      setReasonOpen(false);
+      setReasonTargetId(null);
+      setReasonAction(null);
+      setReasonText("");
       await load();
     } catch (e: any) {
       alert(e.message || "Error");
@@ -171,9 +198,9 @@ export function OrderArrivalConflictsView(props: {
                             {r.driverFeedback}
                           </div>
                         )}
-                        {r.resolutionNote && (
-                          <div className="text-muted-foreground">Note: {r.resolutionNote}</div>
-                        )}
+                        <div className="text-muted-foreground">
+                          Note: {r.resolutionNote || "—"}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         {r.status === "PENDING" ? (
@@ -182,7 +209,7 @@ export function OrderArrivalConflictsView(props: {
                               size="sm"
                               variant="secondary"
                               disabled={!!acting}
-                              onClick={() => void resolve(r.id, "FORGIVE")}
+                              onClick={() => openReasonDialog(r.id, "FORGIVE", r.resolutionNote)}
                             >
                               {busy && acting?.endsWith("FORGIVE") ? "…" : "Forgive"}
                             </Button>
@@ -190,7 +217,7 @@ export function OrderArrivalConflictsView(props: {
                               size="sm"
                               variant="destructive"
                               disabled={!!acting}
-                              onClick={() => void resolve(r.id, "SUSPEND_CUSTOMER")}
+                              onClick={() => openReasonDialog(r.id, "SUSPEND_CUSTOMER", r.resolutionNote)}
                             >
                               {busy && acting?.endsWith("SUSPEND_CUSTOMER") ? "…" : "Suspend customer"}
                             </Button>
@@ -198,13 +225,31 @@ export function OrderArrivalConflictsView(props: {
                               size="sm"
                               variant="destructive"
                               disabled={!!acting}
-                              onClick={() => void resolve(r.id, "SUSPEND_DRIVER")}
+                              onClick={() => openReasonDialog(r.id, "SUSPEND_DRIVER", r.resolutionNote)}
                             >
                               {busy && acting?.endsWith("SUSPEND_DRIVER") ? "…" : "Suspend driver"}
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!!acting}
+                              onClick={() => openReasonDialog(r.id, null, r.resolutionNote)}
+                            >
+                              {acting === r.id + "NOTE" ? "…" : "Edit reason"}
+                            </Button>
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Closed</span>
+                          <div className="flex flex-col gap-1 items-end">
+                            <span className="text-xs text-muted-foreground">Closed</span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!!acting}
+                              onClick={() => openReasonDialog(r.id, null, r.resolutionNote)}
+                            >
+                              {acting === r.id + "NOTE" ? "…" : "Edit reason"}
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -215,6 +260,28 @@ export function OrderArrivalConflictsView(props: {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={reasonOpen} onOpenChange={setReasonOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{reasonAction ? "Decision reason (optional)" : "Update reason"}</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={reasonText}
+            onChange={(e) => setReasonText(e.target.value)}
+            placeholder="Write a reason or note..."
+            rows={5}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReasonOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitReason()} disabled={!reasonTargetId || !!acting}>
+              Submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

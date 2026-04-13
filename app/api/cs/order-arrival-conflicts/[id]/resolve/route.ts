@@ -3,6 +3,7 @@ import { requireCustomerServicePermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAction } from "@/lib/action-log";
 import { CustomerStatus, DriverStatus, OrderDriverArrivalConflictStatus } from "@prisma/client";
+import { notifyCustomerSuspended } from "@/lib/notify-customer-suspended";
 
 const MANAGE_DISPUTES = "MANAGE_DISPUTES";
 
@@ -13,9 +14,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const body = await req.json();
     const action = body?.action as string | undefined;
     const note = typeof body?.note === "string" ? body.note.trim() : undefined;
+    const validActions = ["FORGIVE", "SUSPEND_CUSTOMER", "SUSPEND_DRIVER"] as const;
+    const isResolveAction = !!action && validActions.includes(action as any);
 
-    if (!["FORGIVE", "SUSPEND_CUSTOMER", "SUSPEND_DRIVER"].includes(action || "")) {
-      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    if (!isResolveAction && note === undefined) {
+      return NextResponse.json({ error: "Provide action or note" }, { status: 400 });
     }
 
     const cs = await prisma.customerService.findUnique({
@@ -40,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     });
     if (!conflict) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (conflict.status !== OrderDriverArrivalConflictStatus.PENDING) {
+    if (isResolveAction && conflict.status !== OrderDriverArrivalConflictStatus.PENDING) {
       return NextResponse.json({ error: "Already resolved" }, { status: 400 });
     }
 
@@ -55,30 +58,37 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       SUSPEND_DRIVER: OrderDriverArrivalConflictStatus.RESOLVED_SUSPEND_DRIVER,
     };
 
-    await prisma.$transaction(async (tx) => {
-      await tx.orderDriverArrivalConflict.update({
-        where: { id },
-        data: {
-          status: statusMap[action!],
-          resolvedBySuperUserId: auth.superUserId,
-          resolvedAt: new Date(),
-          resolutionNote: note || null,
-        },
-      });
+    if (isResolveAction) {
+      await prisma.$transaction(async (tx) => {
+        await tx.orderDriverArrivalConflict.update({
+          where: { id },
+          data: {
+            status: statusMap[action!],
+            resolvedBySuperUserId: auth.superUserId,
+            resolvedAt: new Date(),
+            resolutionNote: note || null,
+          },
+        });
 
-      if (action === "SUSPEND_CUSTOMER") {
-        await tx.customer.update({
-          where: { id: conflict.customerId },
-          data: { customerStatus: CustomerStatus.SUSPENDED },
-        });
-      }
-      if (action === "SUSPEND_DRIVER") {
-        await tx.driver.update({
-          where: { id: conflict.driverId },
-          data: { status: DriverStatus.SUSPENDED, suspendedAt: new Date() },
-        });
-      }
-    });
+        if (action === "SUSPEND_CUSTOMER") {
+          await tx.customer.update({
+            where: { id: conflict.customerId },
+            data: { customerStatus: CustomerStatus.SUSPENDED },
+          });
+        }
+        if (action === "SUSPEND_DRIVER") {
+          await tx.driver.update({
+            where: { id: conflict.driverId },
+            data: { status: DriverStatus.SUSPENDED, suspendedAt: new Date() },
+          });
+        }
+      });
+    } else {
+      await prisma.orderDriverArrivalConflict.update({
+        where: { id },
+        data: { resolutionNote: note || null },
+      });
+    }
 
     try {
       await logAction({
@@ -87,9 +97,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         actionType: "RESOLVE_ARRIVAL_CONFLICT",
         targetType: "ORDER_ARRIVAL_CONFLICT",
         targetId: id,
-        newValue: JSON.stringify({ action, note }),
+        newValue: JSON.stringify({ action: isResolveAction ? action : null, note }),
       });
     } catch {}
+
+    if (action === "SUSPEND_CUSTOMER") {
+      await notifyCustomerSuspended(conflict.customer.userId);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

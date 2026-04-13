@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import UserStatusForm from "./user-status-form";
+import { CustomerStatusIndicator } from "@/components/customer-status-indicator";
 
 
 export const dynamic = "force-dynamic";
@@ -90,7 +91,10 @@ export default async function UserDetailPage({ params, searchParams }: { params:
           <CardHeader><CardTitle>Customer Info</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><span className="text-sm text-muted-foreground">Status:</span> <Badge className="ml-2">{user.customer.customerStatus}</Badge></div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">Status:</span>
+                <CustomerStatusIndicator status={user.customer.customerStatus} />
+              </div>
               <div><span className="text-sm text-muted-foreground">Completed Orders:</span> <span className="ml-2">{user.customer.completedOrders}</span></div>
             </div>
             <Separator />

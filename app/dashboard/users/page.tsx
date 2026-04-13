@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { CustomerStatusIndicator } from "@/components/customer-status-indicator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -48,7 +49,7 @@ export default async function UsersPage() {
                   <TableCell>{c.user.firstName} {c.user.secondName}</TableCell>
                   <TableCell>{c.user.phone || "-"}</TableCell>
                   <TableCell>{c.user.googleEmail || c.user.myEmail || "-"}</TableCell>
-                  <TableCell><Badge variant={c.customerStatus === "ACTIVE" ? "default" : "secondary"}>{c.customerStatus}</Badge></TableCell>
+                  <TableCell><CustomerStatusIndicator status={c.customerStatus} /></TableCell>
                   <TableCell>{c.completedOrders}</TableCell>
                   <TableCell>
                     <Link href={`/dashboard/users/${c.user.id}?type=customer`}>

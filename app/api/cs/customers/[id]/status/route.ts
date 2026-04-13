@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCS, hasCSRole } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { notifyCustomerSuspended } from "@/lib/notify-customer-suspended";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCS();
@@ -62,6 +63,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
   } catch (logErr) {
     console.error("Failed to log action:", logErr);
+  }
+
+  if (status === "SUSPENDED" && oldStatus !== "SUSPENDED") {
+    await notifyCustomerSuspended(customer.user.id);
   }
 
   return NextResponse.json({ success: true });

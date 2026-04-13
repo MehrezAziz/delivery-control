@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { CustomerStatusIndicator } from "@/components/customer-status-indicator";
 
 interface Address {
   id: string;
@@ -130,7 +131,10 @@ export default function CSCustomerDetailPage() {
           <div><span className="text-sm text-muted-foreground">Phone:</span> <span className="ml-2">{customer.phone || "-"}</span></div>
           <div><span className="text-sm text-muted-foreground">Email:</span> <span className="ml-2">{customer.email || "-"}</span></div>
           <div><span className="text-sm text-muted-foreground">Gender:</span> <span className="ml-2">{customer.gender || "-"}</span></div>
-          <div><span className="text-sm text-muted-foreground">Status:</span> <Badge className="ml-2">{customer.customerStatus}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Status:</span>
+            <CustomerStatusIndicator status={customer.customerStatus} />
+          </div>
           <div><span className="text-sm text-muted-foreground">Orders:</span> <span className="ml-2">{customer.completedOrders}</span></div>
           <div><span className="text-sm text-muted-foreground">Created:</span> <span className="ml-2">{new Date(customer.createdAt).toLocaleDateString()}</span></div>
         </CardContent>

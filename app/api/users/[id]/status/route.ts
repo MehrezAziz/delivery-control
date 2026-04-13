@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
 import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
+import { notifyCustomerSuspended } from "@/lib/notify-customer-suspended";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
@@ -55,6 +56,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       await prisma.$transaction(async (tx) => {
         await liftAllOpenRestrictionsForUserIds(tx, [id], now);
       });
+    }
+
+    if (normalized === "SUSPENDED" && oldStatus !== "SUSPENDED") {
+      await notifyCustomerSuspended(id);
     }
   } else if (ut === "driver" && user.driver) {
     const driver = user.driver;

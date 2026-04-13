@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { CustomerStatusIndicator } from "@/components/customer-status-indicator";
 import { Button } from "@/components/ui/button";
 
 interface Customer {
@@ -70,9 +70,7 @@ export default function CSCustomersPage() {
                     <TableCell>{c.phone || "-"}</TableCell>
                     <TableCell>{c.email || "-"}</TableCell>
                     <TableCell>
-                      <Badge variant={c.customerStatus === "ACTIVE" ? "default" : "secondary"}>
-                        {c.customerStatus}
-                      </Badge>
+                      <CustomerStatusIndicator status={c.customerStatus} />
                     </TableCell>
                     <TableCell>{c.completedOrders}</TableCell>
                     <TableCell>
