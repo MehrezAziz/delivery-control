@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -128,8 +129,8 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
           </TableHeader>
           <TableBody>
             {csUsers.map(cs => (
-              <>
-                <TableRow key={cs.id}>
+              <Fragment key={cs.id}>
+                <TableRow>
                   <TableCell className="font-medium">{cs.superUser.pseudo}</TableCell>
                   <TableCell>{cs.superUser.email}</TableCell>
                   <TableCell>{cs.superUser.telephone}</TableCell>
@@ -148,18 +149,23 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    {editingId === cs.id ? (
-                      <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancel</Button>
-                    ) : (
-                      <Button variant="outline" size="sm" onClick={() => startEdit(cs)}>
-                        Edit
+                    <div className="flex justify-end gap-2 flex-wrap">
+                      <Button variant="secondary" size="sm" asChild>
+                        <Link href={`/dashboard/customer-service/${cs.id}/governorates`}>Coverage</Link>
                       </Button>
-                    )}
+                      {editingId === cs.id ? (
+                        <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancel</Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => startEdit(cs)}>
+                          Edit
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
 
                 {editingId === cs.id && (
-                  <TableRow key={`${cs.id}-edit`}>
+                  <TableRow>
                     <TableCell colSpan={6}>
                       <div className="bg-muted rounded-lg p-4 space-y-4 border">
                         {/* Roles */}
@@ -210,7 +216,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                     </TableCell>
                   </TableRow>
                 )}
-              </>
+              </Fragment>
             ))}
           </TableBody>
         </Table>

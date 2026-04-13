@@ -20,6 +20,7 @@ const navItems = [
   { href: "/dashboard/finances", label: "Driver Finances", icon: Wallet },
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
+  { href: "/dashboard/order-arrival-conflicts", label: "Arrival incidents", icon: AlertTriangle },
   { href: "/dashboard/support", label: "Support Tickets", icon: MessageSquare },
   { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },
   { href: "/dashboard/restrictions", label: "Restrictions", icon: Shield },
