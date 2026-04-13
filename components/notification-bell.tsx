@@ -131,7 +131,12 @@ export function NotificationBell() {
     setIsOpen(false);
 
     // Navigate based on notification type and relatedEntityType
-    if (n.relatedEntityType === 'SupportTicket' && n.relatedEntityId) {
+    if (
+      n.type === "CUSTOMER_REJECTED_ARRIVED_DRIVER_CS" ||
+      n.type === "ARRIVAL_CONFLICT_DRIVER_FEEDBACK_CS"
+    ) {
+      router.push("/dashboard/order-arrival-conflicts");
+    } else if (n.relatedEntityType === 'SupportTicket' && n.relatedEntityId) {
       router.push(`${basePath}/support/${n.relatedEntityId}`);
     } else if (n.relatedEntityType === 'Dispute' && n.relatedEntityId) {
       router.push(`${basePath}/disputes`);
