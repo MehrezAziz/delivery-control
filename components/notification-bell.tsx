@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,13 @@ interface Notification {
   sentAt: string;
   readAt: string | null;
 }
+
+interface DisplayNotification extends Notification {
+  groupCount?: number;
+  groupedIds?: string[];
+}
+
+const CS_GROUP_TYPES = new Set(["NEW_SUPPORT_TICKET", "NEW_ORDER_FOR_CUSTOMER_SERVICE"]);
 
 export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -126,8 +133,21 @@ export function NotificationBell() {
     } catch {}
   };
 
-  const handleNotificationClick = async (n: Notification) => {
-    if (!n.readAt) await handleMarkRead(n.id);
+  const markManyAsRead = async (ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      await Promise.all(ids.map((id) => fetch(`/api/notifications/${id}/read`, { method: "PATCH", credentials: "include" })));
+      const now = new Date().toISOString();
+      setUnreadCount((c) => Math.max(0, c - ids.length));
+      setNotifications((prev) => prev.map((n) => (ids.includes(n.id) ? { ...n, readAt: n.readAt || now } : n)));
+    } catch {}
+  };
+
+  const handleNotificationClick = async (n: DisplayNotification) => {
+    if (!n.readAt) {
+      if (n.groupedIds && n.groupedIds.length > 1) await markManyAsRead(n.groupedIds);
+      else await handleMarkRead(n.id);
+    }
     setIsOpen(false);
 
     // Navigate based on notification type and relatedEntityType
@@ -167,6 +187,29 @@ export function NotificationBell() {
     CRITICAL: "text-red-600",
   };
 
+  const displayNotifications = useMemo<DisplayNotification[]>(() => {
+    if (isAdmin) return notifications;
+    const grouped: DisplayNotification[] = [];
+    const groupedByType = new Map<string, DisplayNotification>();
+    for (const n of notifications) {
+      const canGroup = !n.readAt && CS_GROUP_TYPES.has(n.type);
+      if (!canGroup) {
+        grouped.push(n);
+        continue;
+      }
+      const existing = groupedByType.get(n.type);
+      if (!existing) {
+        const first: DisplayNotification = { ...n, groupCount: 1, groupedIds: [n.id] };
+        groupedByType.set(n.type, first);
+        grouped.push(first);
+      } else {
+        existing.groupCount = (existing.groupCount || 1) + 1;
+        existing.groupedIds = [...(existing.groupedIds || []), n.id];
+      }
+    }
+    return grouped.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+  }, [notifications, isAdmin]);
+
   return (
     <div className="relative" ref={dropdownRef}>
       <Button variant="ghost" size="icon" className="relative" onClick={handleOpen}>
@@ -194,10 +237,10 @@ export function NotificationBell() {
               <div className="flex items-center justify-center py-8">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-muted-foreground" />
               </div>
-            ) : notifications.length === 0 ? (
+            ) : displayNotifications.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">No notifications</div>
             ) : (
-              notifications.map((n) => (
+              displayNotifications.map((n) => (
                 <div
                   key={n.id}
                   onClick={() => handleNotificationClick(n)}
@@ -217,11 +260,32 @@ export function NotificationBell() {
                     </p>
                     <span className="text-[10px] text-muted-foreground mt-1">{formatTime(n.sentAt)}</span>
                   </div>
-                  {!n.readAt && <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
+                  {!n.readAt ? (
+                    n.groupCount && n.groupCount > 1 ? (
+                      <div className="mt-1 min-w-5 h-5 px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {n.groupCount}
+                      </div>
+                    ) : (
+                      <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                    )
+                  ) : null}
                 </div>
               ))
             )}
           </div>
+          {!isAdmin && (
+            <div className="border-t px-4 py-2">
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  router.push("/cs/notifications");
+                }}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                View all notifications
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
