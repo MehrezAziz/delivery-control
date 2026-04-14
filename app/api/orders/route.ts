@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   try {
-    const payload = await requireAuth();
+    await requireAuth();
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
         dropoffAddress: { include: { delegation: { include: { governorate: { include: { country: true } } } } } },
         driverAssignment: { include: { driver: { include: { user: { select: { id: true, firstName: true, secondName: true, phone: true } } } } } },
         pricingPolicy: true,
-        chatRoom: true,
+        chatRooms: { where: { status: "ACTIVE" }, take: 1 },
         dispute: true,
       },
       orderBy: { createdAt: "desc" },
@@ -39,13 +39,15 @@ export async function GET(req: NextRequest) {
         name: `${o.driverAssignment.driver.user.firstName || ""} ${o.driverAssignment.driver.user.secondName || ""}`.trim(),
         phone: o.driverAssignment.driver.user.phone,
       } : null,
-      hasChat: !!o.chatRoom,
+      hasChat: (o.chatRooms?.length || 0) > 0,
       hasDispute: !!o.dispute,
       disputeStatus: o.dispute?.status || null,
     }));
 
     return NextResponse.json(mapped);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 401 });
+    const msg = e?.message || "Failed to load orders";
+    const status = /unauthorized|admin only|customer service only|permission/i.test(msg) ? 401 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

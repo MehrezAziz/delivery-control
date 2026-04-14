@@ -26,10 +26,24 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const url = statusFilter === "ALL" ? "/api/orders" : `/api/orders?status=${statusFilter}`;
-    fetch(url).then(r => r.json()).then(setOrders).finally(() => setLoading(false));
+    setLoading(true);
+    setError(null);
+    fetch(url)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error || "Failed to load orders");
+        return data;
+      })
+      .then((data) => setOrders(Array.isArray(data) ? data : []))
+      .catch((e: any) => {
+        setOrders([]);
+        setError(e.message || "Failed to load orders");
+      })
+      .finally(() => setLoading(false));
   }, [statusFilter]);
 
   return (
@@ -49,6 +63,11 @@ export default function OrdersPage() {
 
       <Card>
         <CardContent className="p-0">
+          {error && (
+            <div className="px-4 py-3 text-sm text-red-600 border-b bg-red-50">
+              {error}
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>

@@ -12,12 +12,24 @@ export default function OrderDetailPage() {
   const router = useRouter();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/orders/${id}`).then(r => r.json()).then(setOrder).finally(() => setLoading(false));
+    setLoading(true);
+    setError(null);
+    fetch(`/api/orders/${id}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error || "Failed to load order");
+        return data;
+      })
+      .then(setOrder)
+      .catch((e: any) => setError(e.message || "Failed to load order"))
+      .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) return <div className="flex justify-center py-20 text-muted-foreground">Loading...</div>;
+  if (error) return <div className="flex justify-center py-20 text-red-600">{error}</div>;
   if (!order) return <div className="flex justify-center py-20 text-muted-foreground">Order not found</div>;
 
   return (
@@ -124,20 +136,35 @@ export default function OrderDetailPage() {
           </Card>
         )}
 
-        {/* Chat Messages */}
-        {order.chatRoom?.messages?.length > 0 && (
+        {/* Chat rooms history */}
+        {Array.isArray(order.chatRoomsHistory) && order.chatRoomsHistory.length > 0 && (
           <Card className="md:col-span-2">
-            <CardHeader><CardTitle>Chat Messages ({order.chatRoom.messages.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="max-h-64 overflow-y-auto space-y-2">
-                {order.chatRoom.messages.map((msg: any) => (
-                  <div key={msg.id} className={`p-2 rounded text-sm ${msg.senderType === "CUSTOMER" ? "bg-blue-50" : msg.senderType === "DRIVER" ? "bg-green-50" : "bg-gray-50"}`}>
-                    <span className="font-medium">{msg.senderType}: </span>
-                    <span>{msg.content}</span>
-                    <span className="text-xs text-muted-foreground ml-2">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+            <CardHeader><CardTitle>Chat History ({order.chatRoomsHistory.length} rooms)</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              {order.chatRoomsHistory.map((room: any) => (
+                <div key={room.id} className="border rounded-lg p-3">
+                  <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
+                    <Badge variant={room.status === "ACTIVE" ? "default" : "secondary"}>{room.status}</Badge>
+                    <span className="text-muted-foreground">Driver:</span>
+                    <span className="font-medium">{room.driver?.name || "Unknown"}</span>
+                    <span className="text-muted-foreground">({room.driver?.id || "—"})</span>
+                    <span className="text-muted-foreground ml-auto">{new Date(room.createdAt).toLocaleString()}</span>
                   </div>
-                ))}
-              </div>
+                  <div className="max-h-52 overflow-y-auto space-y-2">
+                    {(room.messages || []).length === 0 ? (
+                      <div className="text-xs text-muted-foreground">No messages in this room.</div>
+                    ) : (
+                      (room.messages || []).map((msg: any) => (
+                        <div key={msg.id} className={`p-2 rounded text-sm ${msg.senderType === "CUSTOMER" ? "bg-blue-50" : msg.senderType === "DRIVER" ? "bg-green-50" : "bg-gray-50"}`}>
+                          <span className="font-medium">{msg.senderType}: </span>
+                          <span>{msg.content}</span>
+                          <span className="text-xs text-muted-foreground ml-2">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}
