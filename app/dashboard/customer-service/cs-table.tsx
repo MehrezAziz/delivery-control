@@ -19,6 +19,7 @@ const ALL_ROLES = [
 interface CSUser {
   id: string;
   roles: string[];
+  financialAnalyticsMaxDays: number;
   superUser: {
     id: string;
     pseudo: string;
@@ -33,6 +34,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [newPassword, setNewPassword] = useState("");
+  const [editMaxDays, setEditMaxDays] = useState<number>(7);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -40,6 +42,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
   function startEdit(cs: CSUser) {
     setEditingId(cs.id);
     setEditRoles([...cs.roles]);
+    setEditMaxDays(cs.financialAnalyticsMaxDays || 7);
     setNewPassword("");
     setError("");
     setSuccess("");
@@ -74,7 +77,11 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
 
     setSaving(true);
     try {
-      const body: any = { roles: editRoles };
+      const body: {
+        roles: string[];
+        financialAnalyticsMaxDays: number;
+        password?: string;
+      } = { roles: editRoles, financialAnalyticsMaxDays: editMaxDays };
       if (newPassword) body.password = newPassword;
 
       const res = await fetch(`/api/customer-service/${csId}`, {
@@ -124,6 +131,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
               <TableHead>Phone</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Roles</TableHead>
+              <TableHead>Analytics Max Days</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -148,6 +156,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                       ))}
                     </div>
                   </TableCell>
+                  <TableCell>{cs.financialAnalyticsMaxDays}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2 flex-wrap">
                       <Link href={`/dashboard/customer-service/${cs.id}/governorates`}>
@@ -166,7 +175,7 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
 
                 {editingId === cs.id && (
                   <TableRow>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <div className="bg-muted rounded-lg p-4 space-y-4 border">
                         {/* Roles */}
                         <div className="space-y-2">
@@ -187,6 +196,18 @@ export default function CSTable({ csUsers }: { csUsers: CSUser[] }) {
                               </button>
                             ))}
                           </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold text-foreground">Analytics Max Days</p>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={3650}
+                            value={editMaxDays}
+                            onChange={(e) => setEditMaxDays(Number(e.target.value))}
+                            className="max-w-xs"
+                          />
                         </div>
 
                         {/* Password */}

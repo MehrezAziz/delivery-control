@@ -3,6 +3,7 @@ import { DriverTransactionType, OrderStatus, PaymentType, TransactionStatus } fr
 import { hasCSRole, requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAction } from "@/lib/action-log";
+import { getCsFinancialMaxDays } from "@/lib/cs-financial-policy";
 
 type RangeKey = "day" | "week" | "month" | "year" | "all";
 type DateWindow = { startDate: Date | null; endDate: Date };
@@ -17,7 +18,7 @@ const CACHE_TTL_MS = 60_000;
 const analyticsCache = new Map<string, CacheEntry>();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CS_RANGE_DAYS = 7;
+const DEFAULT_CS_MAX_RANGE_DAYS = 7;
 
 function startOfDay(date: Date): Date {
   const d = new Date(date);
@@ -144,6 +145,7 @@ export async function GET(req: NextRequest) {
     }
 
     let allowedGovernorateIds: string[] = [];
+    let csMaxRangeDays = DEFAULT_CS_MAX_RANGE_DAYS;
     if (!isAdmin) {
       const cs = await prisma.customerService.findUnique({
         where: { id: auth.customerServiceId },
@@ -154,6 +156,9 @@ export async function GET(req: NextRequest) {
         },
       });
       allowedGovernorateIds = (cs?.governorates || []).map((g) => g.governorateId);
+      if (auth.customerServiceId) {
+        csMaxRangeDays = await getCsFinancialMaxDays(auth.customerServiceId);
+      }
       if (allowedGovernorateIds.length === 0) {
         return NextResponse.json({
           meta: {
@@ -163,7 +168,7 @@ export async function GET(req: NextRequest) {
             allowedRanges: ["day", "week"],
             activeRange: "day",
             isScoped: true,
-            maxRangeDays: MAX_CS_RANGE_DAYS,
+            maxRangeDays: csMaxRangeDays,
           },
           kpis: [],
           chart: { points: [], anomalies: [] },
@@ -188,7 +193,17 @@ export async function GET(req: NextRequest) {
 
     const effectiveRange: RangeKey = isAdmin
       ? requestedRange
-      : (requestedRange === "day" || requestedRange === "week" ? requestedRange : "week");
+      : (
+        requestedRange === "all"
+          ? (csMaxRangeDays >= 3650 ? "all" : csMaxRangeDays >= 365 ? "year" : csMaxRangeDays >= 30 ? "month" : csMaxRangeDays >= 7 ? "week" : "day")
+          : requestedRange === "year"
+            ? (csMaxRangeDays >= 365 ? "year" : csMaxRangeDays >= 30 ? "month" : csMaxRangeDays >= 7 ? "week" : "day")
+            : requestedRange === "month"
+              ? (csMaxRangeDays >= 30 ? "month" : csMaxRangeDays >= 7 ? "week" : "day")
+              : requestedRange === "week"
+                ? (csMaxRangeDays >= 7 ? "week" : "day")
+                : "day"
+      );
 
     const availableGovernorates = await prisma.governorate.findMany({
       where: isAdmin
@@ -225,8 +240,8 @@ export async function GET(req: NextRequest) {
     const { startDate, endDate } = customWindow || computeWindow(effectiveRange, now);
     const { prevStartDate, prevEndDate } = splitWindows(startDate, endDate);
 
-    if (!isAdmin && startDate && endDate.getTime() - startDate.getTime() > (MAX_CS_RANGE_DAYS * DAY_MS - 1)) {
-      return NextResponse.json({ error: "Customer Service range must not exceed 7 days." }, { status: 400 });
+    if (!isAdmin && startDate && endDate.getTime() - startDate.getTime() > (csMaxRangeDays * DAY_MS - 1)) {
+      return NextResponse.json({ error: `Customer Service range must not exceed ${csMaxRangeDays} days.` }, { status: 400 });
     }
 
     const cacheKey = JSON.stringify({
@@ -592,11 +607,19 @@ export async function GET(req: NextRequest) {
           ? "Global platform scope"
           : `Assigned governorates (${allowedGovernorateIds.length})`,
         governorateCount: allowedGovernorateIds.length,
-        allowedRanges: isAdmin ? ["day", "week", "month", "year", "all"] : ["day", "week"],
+        allowedRanges: isAdmin
+          ? ["day", "week", "month", "year", "all"]
+          : [
+              "day",
+              ...(csMaxRangeDays >= 7 ? (["week"] as const) : []),
+              ...(csMaxRangeDays >= 30 ? (["month"] as const) : []),
+              ...(csMaxRangeDays >= 365 ? (["year"] as const) : []),
+              ...(csMaxRangeDays >= 3650 ? (["all"] as const) : []),
+            ],
         activeRange: effectiveRange,
         isCustomRange: Boolean(customWindow),
         isScoped: !isAdmin,
-        maxRangeDays: isAdmin ? null : MAX_CS_RANGE_DAYS,
+        maxRangeDays: isAdmin ? null : csMaxRangeDays,
       },
       locale: {
         locale: allCountries.find((country) => country.id === effectiveCountryId)?.language || "en",
@@ -703,6 +726,7 @@ export async function GET(req: NextRequest) {
             driverCohort,
             countryId: effectiveCountryId,
             delegationIds: effectiveDelegationIds,
+            csMaxRangeDays: isAdmin ? null : csMaxRangeDays,
           },
         }),
       });

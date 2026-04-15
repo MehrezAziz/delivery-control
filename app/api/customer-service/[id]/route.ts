@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { clampAnalyticsMaxDays, setCsFinancialMaxDays } from "@/lib/cs-financial-policy";
 import bcrypt from "bcryptjs";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -37,6 +38,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       } catch {}
     }
 
+    if (body.financialAnalyticsMaxDays !== undefined) {
+      const maxDays = await setCsFinancialMaxDays(
+        id,
+        clampAnalyticsMaxDays(Number(body.financialAnalyticsMaxDays)),
+        auth.superUserId,
+      );
+      try {
+        await logAction({
+          actorId: auth.superUserId,
+          actorRole: "ADMIN",
+          actionType: "UPDATE_CS_FINANCIAL_ANALYTICS_MAX_DAYS",
+          targetType: "CUSTOMER_SERVICE",
+          targetId: id,
+          newValue: String(maxDays),
+        });
+      } catch {}
+    }
+
     // Update password if provided
     if (body.password && typeof body.password === "string" && body.password.length >= 6) {
       const hashedPassword = await bcrypt.hash(body.password, 10);
@@ -63,7 +82,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
 
     return NextResponse.json(updated);
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 401 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unauthorized";
+    return NextResponse.json({ error: message }, { status: 401 });
   }
 }
