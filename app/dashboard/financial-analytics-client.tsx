@@ -298,6 +298,11 @@ export default function FinancialAnalyticsClient() {
   const locale = data?.locale?.locale || "en";
   const currency = data?.locale?.currencyCode || "TND";
   const latinLocale = `${locale}-u-nu-latn`;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const maxRangeDays = data?.meta.maxRangeDays ?? null;
+  const minAllowedIso = maxRangeDays
+    ? new Date(Date.now() - (maxRangeDays - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    : undefined;
 
   function moneyLocalized(value: number) {
     return new Intl.NumberFormat(latinLocale, {
@@ -405,6 +410,8 @@ export default function FinancialAnalyticsClient() {
             onChange={(e) => setStartDate(e.target.value)}
             className="h-9 rounded-md border bg-background px-2 text-sm"
             aria-label="Start date"
+            min={minAllowedIso}
+            max={todayIso}
           />
           <input
             type="date"
@@ -412,6 +419,8 @@ export default function FinancialAnalyticsClient() {
             onChange={(e) => setEndDate(e.target.value)}
             className="h-9 rounded-md border bg-background px-2 text-sm"
             aria-label="End date"
+            min={minAllowedIso}
+            max={todayIso}
           />
           <Button
             variant="outline"
@@ -668,7 +677,14 @@ export default function FinancialAnalyticsClient() {
         </div>
       </div>
       {data?.meta.isScoped && startDate && endDate && !canApplyCustomWindow() && (
-        <p className="text-xs text-amber-600">Customer Service custom range must be 7 days or less.</p>
+        <p className="text-xs text-amber-600">
+          Customer Service custom range must be {maxRangeDays || 7} days or less.
+        </p>
+      )}
+      {data?.meta.isScoped && maxRangeDays && (
+        <p className="text-xs text-muted-foreground">
+          Allowed window: last {maxRangeDays} day(s), from {minAllowedIso} to {todayIso} (set by admin).
+        </p>
       )}
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}

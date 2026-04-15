@@ -15,6 +15,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [csRoles, setCsRoles] = useState<string[]>([]);
 
   // Session security: if sessionStorage flag is missing (window was closed), force re-auth
   useEffect(() => {
@@ -24,6 +25,13 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
         window.location.href = "/login/customer-service";
       });
     }
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((me) => setCsRoles(me?.csRoles || []))
+      .catch(() => setCsRoles([]));
   }, []);
 
   async function handleLogout() {
@@ -37,7 +45,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs", label: "Dashboard", icon: LayoutDashboard },
     { href: "/cs/customers", label: "Customers", icon: Users },
     { href: "/cs/drivers", label: "Drivers", icon: Truck },
-    { href: "/cs/orders", label: "Orders", icon: Package },
+    ...(csRoles.includes("VIEW_DELIVERIES") ? [{ href: "/cs/orders", label: "Orders", icon: Package }] : []),
     { href: "/cs/support", label: "Support", icon: MessageSquare },
     { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },
     { href: "/cs/order-arrival-conflicts", label: "Arrival incidents", icon: ShieldAlert },

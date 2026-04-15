@@ -181,6 +181,15 @@ export async function GET(req: NextRequest) {
     }
 
     const allCountries = await prisma.country.findMany({
+      where: isAdmin
+        ? {}
+        : {
+            governorates: {
+              some: {
+                id: { in: allowedGovernorateIds },
+              },
+            },
+          },
       select: { id: true, name: true, isoCode: true, currencyCode: true, language: true },
       orderBy: { name: "asc" },
     });
@@ -189,7 +198,8 @@ export async function GET(req: NextRequest) {
         country.isoCode.toUpperCase() === "TN" ||
         country.name.toLowerCase().includes("tunisia"),
     );
-    const effectiveCountryId = requestedCountryId || tunisia?.id || allCountries[0]?.id || null;
+    const requestedCountryInScope = requestedCountryId && allCountries.some((country) => country.id === requestedCountryId);
+    const effectiveCountryId = requestedCountryInScope ? requestedCountryId : (tunisia?.id || allCountries[0]?.id || null);
 
     const effectiveRange: RangeKey = isAdmin
       ? requestedRange
@@ -242,6 +252,19 @@ export async function GET(req: NextRequest) {
 
     if (!isAdmin && startDate && endDate.getTime() - startDate.getTime() > (csMaxRangeDays * DAY_MS - 1)) {
       return NextResponse.json({ error: `Customer Service range must not exceed ${csMaxRangeDays} days.` }, { status: 400 });
+    }
+    if (!isAdmin && startDate) {
+      const todayEnd = endOfDay(now);
+      const earliestAllowed = startOfDay(new Date(todayEnd.getTime() - (csMaxRangeDays - 1) * DAY_MS));
+      if (endDate.getTime() > todayEnd.getTime()) {
+        return NextResponse.json({ error: "Customer Service cannot select future dates." }, { status: 400 });
+      }
+      if (startDate.getTime() < earliestAllowed.getTime()) {
+        return NextResponse.json(
+          { error: `Allowed analytics window is only within the last ${csMaxRangeDays} day(s).` },
+          { status: 400 },
+        );
+      }
     }
 
     const cacheKey = JSON.stringify({

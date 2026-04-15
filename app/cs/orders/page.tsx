@@ -7,15 +7,44 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 
+type CSOrderRow = {
+  id: string;
+  status: string;
+  price: number;
+  createdAt: string;
+  customer?: { name?: string } | null;
+  driver?: { name?: string } | null;
+};
+
 export default function CSOrdersPage() {
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<CSOrderRow[]>([]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((me) => {
+        const canView = me.role === "ADMIN" || (me.csRoles || []).includes("VIEW_DELIVERIES");
+        setAllowed(canView);
+        if (!canView) setLoading(false);
+      })
+      .catch(() => {
+        setAllowed(false);
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (allowed !== true) return;
     const url = statusFilter === "ALL" ? "/api/orders" : `/api/orders?status=${statusFilter}`;
     fetch(url).then(r => r.json()).then(setOrders).finally(() => setLoading(false));
-  }, [statusFilter]);
+  }, [allowed, statusFilter]);
+
+  if (allowed === false) {
+    return <div className="text-sm text-red-500">Access denied. VIEW_DELIVERIES permission is required.</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -49,7 +78,7 @@ export default function CSOrdersPage() {
                 <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
               ) : orders.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No orders</TableCell></TableRow>
-              ) : orders.map((o: any) => (
+              ) : orders.map((o) => (
                 <TableRow key={o.id}>
                   <TableCell>
                     <Link href={`/cs/orders/${o.id}`} className="text-blue-600 hover:underline font-mono text-sm">{o.id.slice(0, 8)}</Link>

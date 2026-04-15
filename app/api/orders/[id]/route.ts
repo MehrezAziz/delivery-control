@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { hasCSRole, requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
+    if (auth.role === "CUSTOMER_SERVICE" && !hasCSRole(auth, "VIEW_DELIVERIES")) {
+      return NextResponse.json({ error: "Insufficient permissions: VIEW_DELIVERIES required" }, { status: 403 });
+    }
     const { id } = await params;
 
     const order = await prisma.order.findUnique({
@@ -33,7 +36,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
-    const chatRoomsHistory = (order.chatRooms || []).map((room: any) => ({
+    if (auth.role === "CUSTOMER_SERVICE") {
+      const cs = await prisma.customerService.findUnique({
+        where: { id: auth.customerServiceId },
+        select: { governorates: { select: { governorateId: true } } },
+      });
+      const governorateIds = new Set((cs?.governorates || []).map((g) => g.governorateId));
+      const pickupGov = order.pickupAddress?.delegation?.governorate?.id;
+      const dropoffGov = order.dropoffAddress?.delegation?.governorate?.id;
+      const inScope =
+        (pickupGov && governorateIds.has(pickupGov)) ||
+        (dropoffGov && governorateIds.has(dropoffGov));
+      if (!inScope) {
+        return NextResponse.json({ error: "Order out of your governorate scope" }, { status: 403 });
+      }
+    }
+
+    const chatRoomsHistory = (order.chatRooms || []).map((room) => ({
       id: room.id,
       status: room.status,
       createdAt: room.createdAt,
@@ -57,8 +76,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       extraWeightFee: Number(order.extraWeightFee),
       chatRoomsHistory,
     });
-  } catch (e: any) {
-    const msg = e?.message || "Failed to load order";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Failed to load order";
     const status = /unauthorized|admin only|customer service only|permission/i.test(msg) ? 401 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
