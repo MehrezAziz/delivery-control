@@ -13,6 +13,8 @@ const ROLE_LABELS: Record<string, string> = {
   VERIFY_ACCOUNTS: "Verify Accounts",
   ACCEPT_LOCAL_PAYMENT: "Accept Local Payment",
   VIEW_DELIVERIES: "View Deliveries",
+  SEE_DELIVERY_COMPANY: "See Delivery Companies",
+  MANAGE_DELIVERY_COMPANY: "Manage Delivery Companies",
   MANAGE_DISPUTES: "Manage Disputes",
   MANAGE_SUPPORT_TICKETS: "Manage Support Tickets",
   VIEW_FINANCIAL_REPORTS: "View Financial Reports",

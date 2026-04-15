@@ -46,6 +46,9 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs/customers", label: "Customers", icon: Users },
     { href: "/cs/drivers", label: "Drivers", icon: Truck },
     ...(csRoles.includes("VIEW_DELIVERIES") ? [{ href: "/cs/orders", label: "Orders", icon: Package }] : []),
+    ...(csRoles.includes("SEE_DELIVERY_COMPANY") || csRoles.includes("MANAGE_DELIVERY_COMPANY")
+      ? [{ href: "/cs/delivery-companies", label: "Delivery Companies", icon: Truck }]
+      : []),
     { href: "/cs/support", label: "Support", icon: MessageSquare },
     { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },
     { href: "/cs/order-arrival-conflicts", label: "Arrival incidents", icon: ShieldAlert },
