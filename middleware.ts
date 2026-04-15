@@ -5,6 +5,7 @@ const secret = new TextEncoder().encode(process.env.JWT_SECRET || "fallback-secr
 
 interface TokenPayload {
   role: "ADMIN" | "CUSTOMER_SERVICE";
+  csRoles?: string[];
 }
 
 async function getPayload(token: string): Promise<TokenPayload | null> {
@@ -24,7 +25,15 @@ export async function middleware(req: NextRequest) {
     if (!token) return NextResponse.redirect(new URL("/login", req.url));
     const payload = await getPayload(token);
     if (!payload) return NextResponse.redirect(new URL("/login", req.url));
-    if (payload.role !== "ADMIN") return NextResponse.redirect(new URL("/login", req.url));
+    // Customer Service can access /dashboard only when financial-management is explicitly granted.
+    if (payload.role !== "ADMIN") {
+      const isFinancialDashboardRoot = req.nextUrl.pathname === "/dashboard";
+      const canViewFinancialDashboard =
+        payload.role === "CUSTOMER_SERVICE" &&
+        isFinancialDashboardRoot &&
+        (payload.csRoles || []).includes("MANAGE_FINANCIAL_REPORTS");
+      if (!canViewFinancialDashboard) return NextResponse.redirect(new URL("/login", req.url));
+    }
     return NextResponse.next();
   }
 
