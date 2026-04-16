@@ -7,6 +7,9 @@ export interface CompanyPayload {
   companyId: string;
   companyName: string;
   apiKey: string;
+  actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER";
+  departmentId?: string | null;
+  departmentAccountId?: string | null;
 }
 
 export async function signCompanyToken(payload: CompanyPayload): Promise<string> {

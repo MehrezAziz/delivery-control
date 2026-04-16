@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { buildIdempotencyKey } from "@/lib/idempotency";
 
 type RefundRequest = {
   id: string;
@@ -21,12 +22,18 @@ export default function CompanyRefundsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [walletAvailable, setWalletAvailable] = useState(0);
 
   const load = async (keepLoading = false) => {
     if (!keepLoading) setLoading(true);
     try {
-      const r = await fetch("/api/company/refund-requests").then((x) => x.json());
-      setRefunds(Array.isArray(r) ? r : []);
+      const [refundRes, walletRes] = await Promise.all([
+        fetch("/api/company/refund-requests").then((x) => x.json()),
+        fetch("/api/company/wallet").then((x) => x.json()),
+      ]);
+      setRefunds(Array.isArray(refundRes) ? refundRes : []);
+      const available = Number(walletRes?.balance || 0) - Number(walletRes?.locked || 0);
+      setWalletAvailable(available > 0 ? available : 0);
     } catch (e: unknown) {
       setMessage(e instanceof Error ? e.message : "Failed to load refunds");
     } finally {
@@ -66,11 +73,22 @@ export default function CompanyRefundsPage() {
   const createRefund = async () => {
     setMessage(null);
     try {
+      const amountNum = Number(amount);
+      if (amountNum > walletAvailable) {
+        throw new Error(`Refund cannot exceed available balance (${walletAvailable.toFixed(2)} coins).`);
+      }
       const res = await fetch("/api/company/refund-requests", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": buildIdempotencyKey("company-refund-create", {
+            amountCoins: amountNum,
+            destinationType,
+            reason: reason || undefined,
+          }),
+        },
         body: JSON.stringify({
-          amountCoins: Number(amount),
+          amountCoins: amountNum,
           destinationType,
           reason: reason || undefined,
         }),
@@ -95,6 +113,9 @@ export default function CompanyRefundsPage() {
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 text-lg font-semibold">New Refund Request</h2>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Available for refund after platform locks/fees: {walletAvailable.toFixed(2)} coins
+        </p>
         <div className="grid gap-2">
           <input className="rounded-md border px-3 py-2" type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount in coins" />
           <select className="rounded-md border px-3 py-2" value={destinationType} onChange={(e) => setDestinationType(e.target.value)}>

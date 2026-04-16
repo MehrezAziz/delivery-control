@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { ensureMainDepartmentActor } from "@/lib/company-security";
 
 export async function GET() {
   try {
     const auth = await requireCompanyAuth();
+    ensureMainDepartmentActor(auth);
     const keys = await prisma.deliveryCompanyApiKey.findMany({
       where: { deliveryCompanyId: auth.companyId },
       orderBy: { createdAt: "desc" },
@@ -20,6 +22,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireCompanyAuth();
+    ensureMainDepartmentActor(auth);
     const body = await req.json();
     const rawKey = `dck_${randomBytes(20).toString("hex")}`;
     const keyPrefix = rawKey.slice(0, 12);

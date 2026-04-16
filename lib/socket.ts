@@ -3,6 +3,7 @@ import { io, Socket } from "socket.io-client";
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3000";
 
 let socket: Socket | null = null;
+let hasLoggedWsError = false;
 
 export function getSocket(): Socket | null {
   return socket;
@@ -10,6 +11,10 @@ export function getSocket(): Socket | null {
 
 export function connectSocket(token: string): Socket {
   if (socket?.connected) return socket;
+  if (!token?.trim()) {
+    // Avoid noisy reconnect loops when auth context is not ready yet.
+    throw new Error("Socket token is required");
+  }
 
   socket = io(`${BACKEND_URL}/notifications`, {
     auth: { token },
@@ -20,6 +25,7 @@ export function connectSocket(token: string): Socket {
   });
 
   socket.on("connect", () => {
+    hasLoggedWsError = false;
     console.log("[WS] Connected to notification gateway");
   });
 
@@ -28,7 +34,10 @@ export function connectSocket(token: string): Socket {
   });
 
   socket.on("connect_error", (error) => {
-    console.error("[WS] Connection error:", error.message);
+    if (!hasLoggedWsError) {
+      hasLoggedWsError = true;
+      console.warn("[WS] Connection error:", error.message);
+    }
   });
 
   return socket;

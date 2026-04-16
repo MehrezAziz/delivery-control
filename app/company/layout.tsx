@@ -24,6 +24,7 @@ type CompanyAuthMe = {
   name?: string | null;
   contactEmail?: string | null;
   onboardingCompleted?: boolean;
+  actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER";
 };
 
 type NavItem = {
@@ -48,22 +49,28 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const navItems = useMemo<NavItem[]>(
-    () => [
+    () => {
+      const isMain = (profile?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
+      const items: NavItem[] = [
       { href: "/company/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/company/orders", label: "Orders", icon: Package },
       { href: "/company/departments", label: "Departments", icon: Building2 },
       { href: "/company/wallet", label: "Wallet", icon: Wallet },
       { href: "/company/stats", label: "Statistics", icon: ChartColumn },
-      { href: "/company/refunds", label: "Refunds", icon: Wallet },
-      { href: "/company/api-keys", label: "API Keys", icon: KeyRound },
-      {
+      ...(isMain ? [{ href: "/company/refunds", label: "Refunds", icon: Wallet }] : []),
+      ...(isMain ? [{ href: "/company/api-keys", label: "API Keys", icon: KeyRound }] : []),
+      ...(isMain ? [{ href: "/company/budgets", label: "Budgets", icon: Wallet }] : []),
+      ...(isMain ? [{ href: "/company/department-accounts", label: "Department Accounts", icon: Building2 }] : []),
+      ...(isMain ? [{
         href: "/company/setup",
         label: "Setup",
         icon: Settings,
         showBadge: profile?.onboardingCompleted === false,
-      },
-    ],
-    [profile?.onboardingCompleted],
+      }] : []),
+      ];
+      return items;
+    },
+    [profile?.onboardingCompleted, profile?.actorRole],
   );
 
   const logout = async () => {
@@ -138,7 +145,7 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
                 {profile?.name || "Delivery Company Workspace"}
               </h2>
               <p className="truncate text-xs text-muted-foreground">
-                {profile?.contactEmail || "Manage orders, wallet, and integrations"}
+                {profile?.contactEmail || "Manage orders, wallet, and integrations"}{profile?.actorRole ? ` • ${profile.actorRole}` : ""}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-2">

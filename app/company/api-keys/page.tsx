@@ -49,6 +49,13 @@ export default function CompanyApiKeysPage() {
     await load();
   };
 
+  const reactivate = async (id: string) => {
+    const res = await fetch(`/api/company/api-keys/${id}/reactivate`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to reactivate");
+    await load();
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">API Keys</h1>
@@ -71,11 +78,18 @@ export default function CompanyApiKeysPage() {
                 <p className="text-xs text-muted-foreground">{k.keyPrefix}... | {k.status}</p>
                 <p className="text-xs text-muted-foreground">Scopes: {(k.scopes || []).join(", ")}</p>
               </div>
-              {k.status === "ACTIVE" && (
-                <button className="rounded-md border px-2 py-1 text-xs" onClick={() => revoke(k.id)}>
-                  Revoke
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {k.status === "ACTIVE" && (
+                  <button className="rounded-md border px-2 py-1 text-xs" onClick={() => revoke(k.id)}>
+                    Revoke
+                  </button>
+                )}
+                {k.status === "REVOKED" && (
+                  <button className="rounded-md border px-2 py-1 text-xs" onClick={() => reactivate(k.id)}>
+                    Reactivate
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { buildIdempotencyKey } from "@/lib/idempotency";
 
 type Refund = {
   id: string;
@@ -27,9 +28,10 @@ export default function DeliveryCompanyRefundsAdminPage() {
   }, []);
 
   const update = async (id: string, status: string) => {
+    const idemKey = buildIdempotencyKey("admin-deliverycompany-refund-decision", { id, status });
     const res = await fetch(`/api/delivery-companies/refund-requests/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idemKey },
       body: JSON.stringify({ status }),
     });
     const data = await res.json();

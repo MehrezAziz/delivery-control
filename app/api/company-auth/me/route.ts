@@ -15,5 +15,8 @@ export async function GET() {
     companyName: payload.companyName,
     contactEmail: company?.contactEmail || null,
     onboardingCompleted: !!company?.onboardingCompleted,
+    actorRole: payload.actorRole || "MAIN_ADMIN",
+    departmentId: payload.departmentId || null,
+    departmentAccountId: payload.departmentAccountId || null,
   });
 }

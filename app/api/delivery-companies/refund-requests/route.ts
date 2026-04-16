@@ -16,6 +16,7 @@ export async function GET() {
     return NextResponse.json(data);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const status = /unauthorized/i.test(msg) || /permission/i.test(msg) ? 401 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

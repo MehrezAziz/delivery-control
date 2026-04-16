@@ -5,11 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 
 type CompanyProfile = { id: string; name: string; coinBalance: string | number; onboardingCompleted?: boolean };
 type Stats = { orders?: number; delivered?: number; returned?: number; cancelled?: number; grossAmount?: string | number };
+type CompanyMe = { actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER" };
 
 export default function CompanyDashboardPage() {
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [walletInfo, setWalletInfo] = useState<{ balance: number; locked: number; availableCapacity: number } | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [me, setMe] = useState<CompanyMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -23,6 +25,7 @@ export default function CompanyDashboardPage() {
         fetch("/api/company-auth/me").then((x) => x.json()),
       ]);
       setProfile({ ...p, onboardingCompleted: !!me?.onboardingCompleted });
+      setMe(me || null);
       setWalletInfo(w || null);
       setStats(s || {});
     } catch (e: unknown) {
@@ -37,6 +40,7 @@ export default function CompanyDashboardPage() {
   }, []);
 
   const walletBalance = useMemo(() => Number(walletInfo?.balance || profile?.coinBalance || 0), [walletInfo, profile]);
+  const isMain = (me?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
 
   if (loading) return <div>Loading company dashboard...</div>;
 
@@ -72,7 +76,7 @@ export default function CompanyDashboardPage() {
       </div>
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
       {!profile?.onboardingCompleted && (
-        <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm">
+        <div className="rounded-md border border-amber-400/70 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
           Company onboarding is incomplete.
           <Link href="/company/setup" className="ml-2 underline">Open Setup Wizard</Link>
         </div>
@@ -83,9 +87,9 @@ export default function CompanyDashboardPage() {
           <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/orders">Manage Orders</Link>
           <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/departments">Manage Departments</Link>
           <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/wallet">Wallet Ledger</Link>
-          <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/refunds">Refund Requests</Link>
-          <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/api-keys">API Keys</Link>
-          <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/setup">Setup Wizard</Link>
+          {isMain && <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/refunds">Refund Requests</Link>}
+          {isMain && <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/api-keys">API Keys</Link>}
+          {isMain && <Link className="rounded-md border px-3 py-2 hover:bg-muted" href="/company/setup">Setup Wizard</Link>}
         </div>
       </section>
     </div>

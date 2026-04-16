@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { buildIdempotencyKey } from "@/lib/idempotency";
 
 type Order = {
   id: string;
@@ -54,9 +55,15 @@ export default function CompanyOrderDetailsPage() {
   }, [order?.status]);
 
   const submitFeedback = async () => {
+    const orderId = String(params.id);
+    const idemKey = buildIdempotencyKey("company-return-deposit-feedback", {
+      orderId,
+      feedback,
+      conditionIssue,
+    });
     const res = await fetch(`/api/company/orders/${params.id}/return-deposit-feedback`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idemKey },
       body: JSON.stringify({ feedback, conditionIssue }),
     });
     const data = await res.json();

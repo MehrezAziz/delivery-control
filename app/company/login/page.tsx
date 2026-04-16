@@ -47,7 +47,7 @@ export default function CompanyLoginPage() {
         <div>
           <h1 className="text-xl font-semibold">Delivery Company Login</h1>
           <p className="text-sm text-muted-foreground">
-            Use company email/password (recommended) or legacy company ID/API key.
+            Use company email/password or department account email/password. Legacy company ID/API key still works.
           </p>
         </div>
         <div className="space-y-2">

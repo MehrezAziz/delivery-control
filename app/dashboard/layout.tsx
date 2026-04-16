@@ -22,6 +22,7 @@ const navItems = [
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/delivery-companies", label: "Delivery Companies", icon: Truck },
   { href: "/dashboard/delivery-companies/refunds", label: "Company Refund Approvals", icon: DollarSign },
+  { href: "/dashboard/delivery-companies/budgets", label: "Company Budget Requests", icon: DollarSign },
   { href: "/dashboard/order-arrival-conflicts", label: "Arrival incidents", icon: AlertTriangle },
   { href: "/dashboard/support", label: "Support Tickets", icon: MessageSquare },
   { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },
