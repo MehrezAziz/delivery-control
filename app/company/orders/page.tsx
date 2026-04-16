@@ -14,7 +14,29 @@ type CompanyOrder = {
   returnDepositFeedback?: { id: string; feedback: string; conditionIssue: boolean } | null;
 };
 
-type CompanyProfile = { addresses?: Array<{ id: string; label: string; isDefault?: boolean }> };
+type CompanyProfile = {
+  addresses?: Array<{
+    id: string;
+    label: string;
+    isDefault?: boolean;
+    country?: string | null;
+    city?: string | null;
+    street?: string | null;
+  }>;
+  actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER";
+  departmentId?: string | null;
+};
+type GeoTree = {
+  countries: Array<{
+    id: string;
+    name: string;
+    governorates: Array<{
+      id: string;
+      nameGovernorate: string;
+      delegations: Array<{ id: string; nameDelegation: string }>;
+    }>;
+  }>;
+};
 
 export default function CompanyOrdersPage() {
   const [orders, setOrders] = useState<CompanyOrder[]>([]);
@@ -26,24 +48,44 @@ export default function CompanyOrdersPage() {
   const pageSize = 10;
 
   const [pickupAddressId, setPickupAddressId] = useState("");
-  const [dropoffAddressId, setDropoffAddressId] = useState("");
   const [localPickupOnly, setLocalPickupOnly] = useState(false);
   const [weight, setWeight] = useState("1");
   const [extraAmount, setExtraAmount] = useState("0");
   const [description, setDescription] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [destinationMode, setDestinationMode] = useState<"address_id" | "manual">("address_id");
-  const [destinationDetails, setDestinationDetails] = useState("");
+  const [dropoffGovernorateId, setDropoffGovernorateId] = useState("");
+  const [dropoffDelegationId, setDropoffDelegationId] = useState("");
+  const [dropoffStreet, setDropoffStreet] = useState("");
+  const [geo, setGeo] = useState<GeoTree>({ countries: [] });
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
     totalPrice: number;
     reserveAmount: number;
     requiredCapacity: number;
     effectiveDiscountPercent: number;
+    calculatedPrice: number;
+    discountedPrice: number;
+    customerExtraAmount: number;
+    weightKg: number;
+    distanceKm: number;
+    billingDistanceKm: number;
+    pricePerKm: number;
+    nightFee: number;
   } | null>(null);
   const [feedbackText, setFeedbackText] = useState<Record<string, string>>({});
   const [feedbackConditionIssue, setFeedbackConditionIssue] = useState<Record<string, boolean>>({});
+  const isChildDepartment = !!profile?.actorRole && profile.actorRole !== "MAIN_ADMIN";
+  const selectedPickupAddress = (profile?.addresses || []).find((a) => a.id === pickupAddressId) || null;
+  const pickupCountry = geo.countries.find(
+    (c) =>
+      c.name.toLowerCase() === String(selectedPickupAddress?.country || "").toLowerCase() ||
+      c.name.toLowerCase() === String(selectedPickupAddress?.country || "").trim().toLowerCase(),
+  ) || null;
+  const governorates = pickupCountry?.governorates || [];
+  const selectedGovernorate = governorates.find((g) => g.id === dropoffGovernorateId) || null;
+  const delegations = selectedGovernorate?.delegations || [];
+  const money = (value: number) => `${Number(value || 0).toFixed(2)} coins`;
 
   const load = async (keepLoading = false) => {
     if (!keepLoading) setLoading(true);
@@ -52,10 +94,24 @@ export default function CompanyOrdersPage() {
         fetch("/api/company/profile").then((x) => x.json()),
         fetch("/api/company/orders").then((x) => x.json()),
       ]);
+      const geoRes = await fetch("/api/company/geo").then((x) => x.json()).catch(() => ({ countries: [] }));
       setProfile(profileRes);
-      if (!pickupAddressId && Array.isArray(profileRes?.addresses) && profileRes.addresses.length > 0) {
-        const defaultDept = profileRes.addresses.find((a: { id: string; isDefault?: boolean }) => a.isDefault) || profileRes.addresses[0];
+      setGeo({ countries: Array.isArray(geoRes?.countries) ? geoRes.countries : [] });
+      if (Array.isArray(profileRes?.addresses) && profileRes.addresses.length > 0) {
+        const actorRole = profileRes?.actorRole as string | undefined;
+        const isChild = !!actorRole && actorRole !== "MAIN_ADMIN";
+        const childDepartmentId = profileRes?.departmentId as string | undefined;
+        const childAddress =
+          isChild && childDepartmentId
+            ? profileRes.addresses.find((a: { id: string }) => a.id === childDepartmentId)
+            : null;
+        const defaultDept =
+          childAddress ||
+          profileRes.addresses.find((a: { id: string; isDefault?: boolean }) => a.isDefault) ||
+          profileRes.addresses[0];
         if (defaultDept?.id) setPickupAddressId(defaultDept.id);
+      } else if (!pickupAddressId) {
+        setPickupAddressId("");
       }
       setOrders(Array.isArray(ordersRes) ? ordersRes : []);
     } catch (e: unknown) {
@@ -73,33 +129,61 @@ export default function CompanyOrdersPage() {
     setPage(1);
   }, [statusFilter]);
 
+  useEffect(() => {
+    if (!selectedPickupAddress || !governorates.length) return;
+    if (dropoffGovernorateId) return;
+    const match = governorates.find(
+      (g) => g.nameGovernorate.toLowerCase() === String(selectedPickupAddress.city || "").toLowerCase(),
+    );
+    if (match) setDropoffGovernorateId(match.id);
+  }, [pickupAddressId, selectedPickupAddress, governorates, dropoffGovernorateId]);
+
+  useEffect(() => {
+    if (!dropoffGovernorateId) {
+      setDropoffDelegationId("");
+      return;
+    }
+    if (!delegations.some((d) => d.id === dropoffDelegationId)) {
+      setDropoffDelegationId("");
+    }
+  }, [dropoffGovernorateId, delegations, dropoffDelegationId]);
+
   const payload = () => {
     if (!customerName.trim() || !customerPhone.trim()) {
       throw new Error("Customer name and phone are required");
     }
-    if (!pickupAddressId) {
-      throw new Error("Source delivery address is required");
+    if (!localPickupOnly && !dropoffGovernorateId) {
+      throw new Error("Destination governorate is required");
     }
-    if (!localPickupOnly && destinationMode === "address_id" && !dropoffAddressId) {
-      throw new Error("Destination address ID is required");
+    if (!localPickupOnly && !dropoffDelegationId) {
+      throw new Error("Destination delegation is required");
     }
 
     const notes = [
       description?.trim() || "",
       `Customer: ${customerName.trim()}`,
       `Phone: ${customerPhone.trim()}`,
-      destinationMode === "manual" && destinationDetails.trim() ? `Destination details: ${destinationDetails.trim()}` : "",
+      dropoffStreet.trim() ? `Destination street: ${dropoffStreet.trim()}` : "",
       "Source: Delivery company order",
     ]
       .filter(Boolean)
       .join("\n");
 
+    const resolvedPickupAddressId =
+      isChildDepartment && profile?.departmentId ? profile.departmentId : pickupAddressId;
+    if (!resolvedPickupAddressId) {
+      throw new Error("Source delivery address is required");
+    }
+
     return {
-      pickupAddressId,
-      dropoffAddressId: localPickupOnly ? undefined : destinationMode === "address_id" ? dropoffAddressId : undefined,
-    localPickupOnly,
-    weight: Number(weight),
-    customerExtraAmount: Number(extraAmount || 0),
+      pickupAddressId: resolvedPickupAddressId,
+      dropoffAddressId: undefined,
+      dropoffGovernorateId: localPickupOnly ? undefined : dropoffGovernorateId,
+      dropoffDelegationId: localPickupOnly ? undefined : dropoffDelegationId,
+      dropoffStreet: localPickupOnly ? undefined : dropoffStreet.trim() || undefined,
+      localPickupOnly,
+      weight: Number(weight),
+      customerExtraAmount: Number(extraAmount || 0),
       description: notes || undefined,
     };
   };
@@ -142,7 +226,7 @@ export default function CompanyOrdersPage() {
       setDescription("");
       setCustomerName("");
       setCustomerPhone("");
-      setDestinationDetails("");
+      setDropoffStreet("");
       await load(true);
     } catch (e: unknown) {
       setMessage(e instanceof Error ? e.message : "Order creation failed");
@@ -211,16 +295,20 @@ export default function CompanyOrdersPage() {
     <div className="space-y-6">
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
 
-      <section className="rounded-lg border p-4">
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-slate-900">
         <h2 className="mb-3 text-lg font-semibold">Create Delivery Order</h2>
         <div className="grid gap-3 md:grid-cols-2">
           <select
             className="rounded-md border px-3 py-2"
             value={pickupAddressId}
             onChange={(e) => setPickupAddressId(e.target.value)}
+            disabled={isChildDepartment}
           >
-            <option value="">Select source department address</option>
-            {(profile?.addresses || []).map((addr) => (
+            <option value="">{isChildDepartment ? "Your department source address" : "Select source department address"}</option>
+            {(isChildDepartment
+              ? (profile?.addresses || []).filter((addr) => addr.id === profile?.departmentId)
+              : profile?.addresses || []
+            ).map((addr) => (
               <option key={addr.id} value={addr.id}>
                 {addr.label} ({addr.id.slice(0, 8)})
               </option>
@@ -241,27 +329,38 @@ export default function CompanyOrdersPage() {
           {!localPickupOnly && (
             <select
               className="rounded-md border px-3 py-2"
-              value={destinationMode}
-              onChange={(e) => setDestinationMode(e.target.value as "address_id" | "manual")}
+              value={dropoffGovernorateId}
+              onChange={(e) => setDropoffGovernorateId(e.target.value)}
             >
-              <option value="address_id">Destination by address ID</option>
-              <option value="manual">Destination by manual details</option>
+              <option value="">Select destination governorate</option>
+              {governorates.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nameGovernorate}
+                </option>
+              ))}
             </select>
           )}
-          {!localPickupOnly && destinationMode === "address_id" && (
-            <input
+          {!localPickupOnly && (
+            <select
               className="rounded-md border px-3 py-2"
-              value={dropoffAddressId}
-              onChange={(e) => setDropoffAddressId(e.target.value)}
-              placeholder="Dropoff address ID"
-            />
+              value={dropoffDelegationId}
+              onChange={(e) => setDropoffDelegationId(e.target.value)}
+              disabled={!dropoffGovernorateId}
+            >
+              <option value="">Select destination delegation</option>
+              {delegations.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nameDelegation}
+                </option>
+              ))}
+            </select>
           )}
-          {!localPickupOnly && destinationMode === "manual" && (
+          {!localPickupOnly && (
             <input
               className="rounded-md border px-3 py-2 md:col-span-2"
-              value={destinationDetails}
-              onChange={(e) => setDestinationDetails(e.target.value)}
-              placeholder="Destination details (street/building/landmark)"
+              value={dropoffStreet}
+              onChange={(e) => setDropoffStreet(e.target.value)}
+              placeholder="Street / building / landmark (optional)"
             />
           )}
           <input className="rounded-md border px-3 py-2" type="number" min="0" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="Weight" />
@@ -276,16 +375,43 @@ export default function CompanyOrdersPage() {
           <button className="rounded-md border px-3 py-2" onClick={runPreview}>
             Preview
           </button>
-          <button className="rounded-md bg-primary px-3 py-2 text-primary-foreground" onClick={createOrder}>
-            Create
-          </button>
         </div>
         {preview && (
-          <div className="mt-3 rounded-md border p-3 text-sm">
-            <p>Total: {Number(preview.totalPrice || 0).toFixed(2)}</p>
-            <p>Reserve: {Number(preview.reserveAmount || 0).toFixed(2)}</p>
-            <p>Required Capacity: {Number(preview.requiredCapacity || 0).toFixed(2)}</p>
-            <p>Discount: {Number(preview.effectiveDiscountPercent || 0).toFixed(2)}%</p>
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Price Preview</h3>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs font-medium text-white">Ready to create</span>
+                {Number(preview.effectiveDiscountPercent || 0) !== 0 && (
+                  <span className="rounded-full bg-violet-600 px-2 py-1 text-xs font-medium text-white">
+                    Discount Applied
+                  </span>
+                )}
+                {Number(preview.nightFee || 0) > 0 && (
+                  <span className="rounded-full bg-amber-500 px-2 py-1 text-xs font-medium text-black">
+                    Night Delivery
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="grid gap-2 text-sm md:grid-cols-2">
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Weight: <b>{Number(preview.weightKg || 0).toFixed(2)} kg</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Distance: <b>{Number(preview.distanceKm || 0).toFixed(2)} km</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Billing distance: <b>{Number(preview.billingDistanceKm || 0).toFixed(2)} km</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Price / km: <b>{money(preview.pricePerKm || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Night fee: <b>{money(preview.nightFee || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Additional driver price: <b>{money(preview.customerExtraAmount || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Price after discount: <b>{money(preview.discountedPrice || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Discount: <b>{Number(preview.effectiveDiscountPercent || 0).toFixed(2)}%</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Reserve: <b>{money(preview.reserveAmount || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Required capacity: <b>{money(preview.requiredCapacity || 0)}</b></div>
+              <div className="rounded-lg border border-emerald-300 bg-emerald-100 px-3 py-2 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100 md:col-span-2">
+                Total to charge: <b>{money(preview.totalPrice || 0)}</b>
+              </div>
+            </div>
+            <button className="mt-4 rounded-md bg-primary px-4 py-2 text-primary-foreground shadow" onClick={createOrder}>
+              Create Order
+            </button>
           </div>
         )}
         <p className="mt-2 text-xs text-muted-foreground">

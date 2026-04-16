@@ -13,6 +13,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: res.status });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to preview order";
+    if (/unauthorized/i.test(msg)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (/forbidden|permission/i.test(msg)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (/backend unreachable|fetch failed|ECONNREFUSED/i.test(msg)) {
+      return NextResponse.json({ error: "Delivery backend is unavailable" }, { status: 503 });
+    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
