@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, Headphones } from "lucide-react";
+import { Shield, Headphones, Building2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,6 +44,17 @@ export default function LoginPage() {
             <div>
               <div className="font-semibold text-base">Customer Service</div>
               <div className="text-xs text-muted-foreground">Support and user management</div>
+            </div>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full h-20 flex items-center gap-4 text-left justify-start px-6"
+            onClick={() => router.push("/company/login")}
+          >
+            <Building2 className="h-8 w-8 text-muted-foreground shrink-0" />
+            <div>
+              <div className="font-semibold text-base">Delivery Company</div>
+              <div className="text-xs text-muted-foreground">Company dashboard and API actions</div>
             </div>
           </Button>
         </CardContent>

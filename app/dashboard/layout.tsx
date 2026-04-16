@@ -21,6 +21,7 @@ const navItems = [
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/delivery-companies", label: "Delivery Companies", icon: Truck },
+  { href: "/dashboard/delivery-companies/refunds", label: "Company Refund Approvals", icon: DollarSign },
   { href: "/dashboard/order-arrival-conflicts", label: "Arrival incidents", icon: AlertTriangle },
   { href: "/dashboard/support", label: "Support Tickets", icon: MessageSquare },
   { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },

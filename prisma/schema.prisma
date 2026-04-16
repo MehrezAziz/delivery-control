@@ -873,9 +873,13 @@ model Order {
 model DeliveryCompany {
   id                      String               @id @default(uuid())
   name                    String
+  contactEmail            String?              @unique @map("contact_email")
+  passwordHash            String?              @map("password_hash")
   legalName               String?              @map("legal_name")
   taxId                   String?              @map("tax_id")
   status                  DeliveryCompanyStatus @default(PENDING)
+  onboardingCompleted     Boolean              @default(false) @map("onboarding_completed")
+  defaultRefundDestinationType DeliveryCompanyRefundDestinationType? @map("default_refund_destination_type")
   defaultDiscountPercent  Decimal?             @db.Decimal(5, 2) @map("default_discount_percent")
   maxNegativeBalance      Decimal              @default(0) @db.Decimal(10, 2) @map("max_negative_balance")
   coinBalance             Decimal              @default(0) @db.Decimal(12, 2) @map("coin_balance")
@@ -891,9 +895,26 @@ model DeliveryCompany {
   refundRequests          DeliveryCompanyRefundRequest[]
   transactions            DeliveryCompanyTransaction[]
   orders                  Order[]
+  auditLogs               DeliveryCompanyAuditLog[]
 
   @@index([status, createdAt])
   @@map("delivery_companies")
+}
+
+model DeliveryCompanyAuditLog {
+  id                String   @id @default(uuid())
+  deliveryCompanyId String   @map("delivery_company_id")
+  actionType        String   @map("action_type")
+  actorType         String   @map("actor_type")
+  actorRef          String?  @map("actor_ref")
+  details           Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  deliveryCompany   DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryCompanyId, createdAt])
+  @@index([actionType, createdAt])
+  @@map("delivery_company_audit_logs")
 }
 
 model DeliveryCompanyAddress {

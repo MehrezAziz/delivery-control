@@ -8,10 +8,25 @@ interface TokenPayload {
   csRoles?: string[];
 }
 
+interface CompanyTokenPayload {
+  companyId: string;
+  companyName: string;
+  apiKey: string;
+}
+
 async function getPayload(token: string): Promise<TokenPayload | null> {
   try {
     const { payload } = await jwtVerify(token, secret);
     return payload as unknown as TokenPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function getCompanyPayload(token: string): Promise<CompanyTokenPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    return payload as unknown as CompanyTokenPayload;
   } catch {
     return null;
   }
@@ -46,6 +61,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Protect /company routes — delivery company token only
+  if (req.nextUrl.pathname.startsWith("/company")) {
+    if (req.nextUrl.pathname.startsWith("/company/login")) return NextResponse.next();
+    const companyToken = req.cookies.get("company_token")?.value;
+    if (!companyToken) return NextResponse.redirect(new URL("/company/login", req.url));
+    const payload = await getCompanyPayload(companyToken);
+    if (!payload?.companyId) return NextResponse.redirect(new URL("/company/login", req.url));
+    return NextResponse.next();
+  }
+
   // If on login page, always allow access (user may need to re-authenticate)
   if (req.nextUrl.pathname.startsWith("/login")) {
     return NextResponse.next();
@@ -54,4 +79,4 @@ export async function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/dashboard/:path*", "/cs/:path*"] };
+export const config = { matcher: ["/dashboard/:path*", "/cs/:path*", "/company/:path*"] };
