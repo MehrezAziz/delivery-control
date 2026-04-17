@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
@@ -79,6 +79,9 @@ export default function CompanyOrderDetailsPage() {
   const [chatText, setChatText] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [cancelRemain, setCancelRemain] = useState<number | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
 
   const loadChat = useCallback(async () => {
     const chatRes = await fetch(`/api/company/orders/${params.id}/chat`, { cache: "no-store" });
@@ -117,6 +120,11 @@ export default function CompanyOrderDetailsPage() {
   }, [order]);
 
   useEffect(() => {
+    if (!isNearBottom) return;
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chatRoom?.messages.length, isNearBottom]);
+
+  useEffect(() => {
     const orderIdStr = String(params.id);
     const onNotif = (notif: { relatedEntityType?: string; relatedEntityId?: string; type?: string }) => {
       const isSameOrder =
@@ -135,6 +143,12 @@ export default function CompanyOrderDetailsPage() {
     const onChatRefresh = (payload: { orderId?: string }) => {
       if (payload?.orderId === orderIdStr) void loadChat();
     };
+    const onOrderUpdated = (payload: { orderId?: string }) => {
+      if (payload?.orderId === orderIdStr) {
+        void loadOrder();
+        void loadChat();
+      }
+    };
     const run = async () => {
       await loadOrder();
       await loadChat();
@@ -144,13 +158,20 @@ export default function CompanyOrderDetailsPage() {
         const socket = connectSocket(String(me.token));
         socket.on("notification", onNotif);
         socket.on("order_chat_refresh", onChatRefresh);
+        socket.on("order_updated", onOrderUpdated);
       }
     };
     void run();
+    const poll = setInterval(() => {
+      void loadOrder();
+      void loadChat();
+    }, 4000);
     return () => {
+      clearInterval(poll);
       const socket = getSocket();
       socket?.off("notification", onNotif);
       socket?.off("order_chat_refresh", onChatRefresh);
+      socket?.off("order_updated", onOrderUpdated);
     };
   }, [params.id, loadOrder, loadChat]);
 
@@ -209,6 +230,7 @@ export default function CompanyOrderDetailsPage() {
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to send message");
     setChatText("");
+    setIsNearBottom(true);
     await loadChat();
   };
 
@@ -324,7 +346,16 @@ export default function CompanyOrderDetailsPage() {
             <p className="text-sm text-muted-foreground">
               Driver: {chatRoom.driver?.name || "-"} | Room: {chatRoom.status}
             </p>
-            <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border bg-muted/20 p-3">
+            <div
+              ref={chatScrollRef}
+              className="max-h-80 space-y-2 overflow-y-auto rounded-lg border bg-muted/20 p-3"
+              onScroll={() => {
+                const el = chatScrollRef.current;
+                if (!el) return;
+                const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+                setIsNearBottom(remaining < 80);
+              }}
+            >
               {chatRoom.messages.map((m) => {
                 const isCompany = m.senderType === "CUSTOMER";
                 return (
@@ -347,6 +378,7 @@ export default function CompanyOrderDetailsPage() {
               {chatRoom.messages.length === 0 && (
                 <p className="text-sm text-muted-foreground">No messages yet.</p>
               )}
+              <div ref={chatEndRef} />
             </div>
             <div className="flex gap-2">
               <input

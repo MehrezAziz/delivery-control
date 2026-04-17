@@ -88,6 +88,7 @@ export default function CompanyOrdersPage() {
   const [geo, setGeo] = useState<GeoTree>({ countries: [] });
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
+    baseFee?: number;
     totalPrice: number;
     reserveAmount: number;
     requiredCapacity: number;
@@ -100,8 +101,11 @@ export default function CompanyOrdersPage() {
     billingDistanceKm: number;
     pricePerKm: number;
     nightFee: number;
+    extraWeightFee?: number;
+    distanceFee?: number;
     maxConfirmationDelayMinutes: number;
   } | null>(null);
+  const [showRequiredCoinsInfo, setShowRequiredCoinsInfo] = useState(false);
   const [feedbackText, setFeedbackText] = useState<Record<string, string>>({});
   const [feedbackConditionIssue, setFeedbackConditionIssue] = useState<Record<string, boolean>>({});
   const [addDelayMinutesByOrder, setAddDelayMinutesByOrder] = useState<Record<string, string>>({});
@@ -160,6 +164,9 @@ export default function CompanyOrdersPage() {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => void loadRef.current?.(true);
+    const refreshOrder = (payload: { orderId?: string }) => {
+      if (payload?.orderId) void loadRef.current?.(true);
+    };
     async function initSocket() {
       try {
         const meRes = await fetch("/api/company-auth/me", { cache: "no-store" });
@@ -169,6 +176,7 @@ export default function CompanyOrdersPage() {
         const socket = connectSocket(String(me.token));
         socket.on("notification", refresh);
         socket.on("order_chat_refresh", refresh);
+        socket.on("order_updated", refreshOrder);
       } catch {
         /* ignore */
       }
@@ -179,6 +187,7 @@ export default function CompanyOrdersPage() {
       const s = getSocket();
       s?.off("notification", refresh);
       s?.off("order_chat_refresh", refresh);
+      s?.off("order_updated", refreshOrder);
     };
   }, []);
 
@@ -520,42 +529,97 @@ export default function CompanyOrdersPage() {
           </button>
         </div>
         {preview && (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Price Preview</h3>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs font-medium text-white">Ready to create</span>
-                {Number(preview.effectiveDiscountPercent || 0) !== 0 && (
-                  <span className="rounded-full bg-violet-600 px-2 py-1 text-xs font-medium text-white">
-                    Discount Applied
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/30">
+            <h3 className="mb-3 text-sm font-semibold">Order Review</h3>
+            <div className="space-y-2 text-sm">
+              <div className="space-y-2 rounded-lg border bg-background/70 p-2">
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                  <span>Base fee</span>
+                  <span><b>{money(preview.baseFee || 0)}</b></span>
+                </div>
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                  <span>Weight: <b>{Number(preview.weightKg || 0).toFixed(2)} kg</b></span>
+                  <span><b>{money(preview.extraWeightFee || 0)}</b></span>
+                </div>
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                  <span>Distance: <b>~{Number(preview.distanceKm || 0).toFixed(2)} km</b></span>
+                  <span>
+                    <b>
+                      {money(
+                        typeof preview.distanceFee === "number"
+                          ? preview.distanceFee
+                          : Number(preview.pricePerKm || 0) * Number(preview.billingDistanceKm || 0),
+                      )}
+                    </b>
                   </span>
-                )}
-                {Number(preview.nightFee || 0) > 0 && (
-                  <span className="rounded-full bg-amber-500 px-2 py-1 text-xs font-medium text-black">
-                    Night Delivery
-                  </span>
+                </div>
+                {Number(preview.nightFee || 0) !== 0 && (
+                  <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                    <span>Night fee</span>
+                    <span><b>{money(preview.nightFee || 0)}</b></span>
+                  </div>
                 )}
               </div>
-            </div>
-            <div className="grid gap-2 text-sm md:grid-cols-2">
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Weight: <b>{Number(preview.weightKg || 0).toFixed(2)} kg</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Distance: <b>{Number(preview.distanceKm || 0).toFixed(2)} km</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Billing distance: <b>{Number(preview.billingDistanceKm || 0).toFixed(2)} km</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Price / km: <b>{money(preview.pricePerKm || 0)}</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Night fee: <b>{money(preview.nightFee || 0)}</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Confirmation delay: <b>{Number(preview.maxConfirmationDelayMinutes || 15)} min</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Additional driver price: <b>{money(preview.customerExtraAmount || 0)}</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Price after discount: <b>{money(preview.discountedPrice || 0)}</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Discount: <b>{Number(preview.effectiveDiscountPercent || 0).toFixed(2)}%</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Reserve: <b>{money(preview.reserveAmount || 0)}</b></div>
-              <div className="rounded-lg border bg-background/70 px-3 py-2">Required capacity: <b>{money(preview.requiredCapacity || 0)}</b></div>
-              <div className="rounded-lg border border-emerald-300 bg-emerald-100 px-3 py-2 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100 md:col-span-2">
-                Total to charge: <b>{money(preview.totalPrice || 0)}</b>
+
+              <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/60 p-2 dark:border-violet-900 dark:bg-violet-950/20">
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5 text-violet-900 dark:text-violet-200">
+                  <span><b>Total</b></span>
+                  <span>
+                    <b>
+                      {money(
+                        Number(preview.baseFee || 0) +
+                          Number(preview.extraWeightFee || 0) +
+                          Number(
+                            typeof preview.distanceFee === "number"
+                              ? preview.distanceFee
+                              : Number(preview.pricePerKm || 0) * Number(preview.billingDistanceKm || 0),
+                          ) +
+                          Number(preview.nightFee || 0),
+                      )}
+                    </b>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                  <span>
+                    Discount: <b>{Number(preview.effectiveDiscountPercent || 0).toFixed(2)}%</b>
+                  </span>
+                  <span>
+                    <b>{money(preview.discountedPrice || 0)}</b>
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2 dark:border-emerald-900 dark:bg-emerald-950/20">
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5">
+                  <span>Additional driver price</span>
+                  <span><b>{money(preview.customerExtraAmount || 0)}</b></span>
+                </div>
+                <div className="flex items-center justify-between rounded-md px-2 py-1.5 text-emerald-900 dark:text-emerald-200">
+                  <span><b>Total to pay</b></span>
+                  <span><b>{money(preview.totalPrice || 0)}</b></span>
+                </div>
               </div>
             </div>
             <button className="mt-4 rounded-md bg-primary px-4 py-2 text-primary-foreground shadow" onClick={createOrder}>
               Create Order
             </button>
+            <p className="mt-2 text-xs text-muted-foreground">
+              coins required to place this order: Total + 50% = {money(preview.requiredCapacity || 0)}{" "}
+              <button
+                type="button"
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold"
+                aria-label="Explain required coins"
+                onClick={() => setShowRequiredCoinsInfo((v) => !v)}
+              >
+                i
+              </button>
+            </p>
+            {showRequiredCoinsInfo && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                In case of order returned, the driver also gets 50% because he turns back the order to you.
+                If the order is delivered or cancelled, these coins return back to you.
+              </p>
+            )}
           </div>
         )}
         <p className="mt-2 text-xs text-muted-foreground">
