@@ -44,6 +44,12 @@ export async function emitDepartmentNotification(
   }
 
   // Fire-and-forget style: if notification dispatch fails, do not break business flow.
+  const requestId = (payload as { requestId?: string }).requestId;
+  const inferredGroupKey =
+    (payload as { groupKey?: string }).groupKey ??
+    (requestId && type.includes("BUDGET") ? `budget:${requestId}` : undefined) ??
+    (requestId && type.includes("REFUND") ? `refund:${requestId}` : undefined);
+
   try {
     await companyBackendFetch("/notifications/department", {
       method: "POST",
@@ -52,8 +58,8 @@ export async function emitDepartmentNotification(
         title,
         body,
         relatedEntityType: type.includes("REFUND") ? "RefundRequest" : "BudgetRequest",
-        relatedEntityId: (payload as any)?.requestId ?? null,
-        groupKey: (payload as any)?.groupKey ?? undefined,
+        relatedEntityId: requestId ?? null,
+        groupKey: inferredGroupKey,
       }),
     });
   } catch (e) {

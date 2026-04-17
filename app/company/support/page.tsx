@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { connectSocket, getSocket } from "@/lib/socket";
 
 type Ticket = {
@@ -18,6 +19,9 @@ type TicketMessage = {
 };
 
 export default function CompanySupportPage() {
+  const searchParams = useSearchParams();
+  const ticketFromUrl = searchParams.get("ticket");
+
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [description, setDescription] = useState("");
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
@@ -37,6 +41,13 @@ export default function CompanySupportPage() {
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    if (!ticketFromUrl) return;
+    if (tickets.some((x) => x.id === ticketFromUrl)) {
+      setActiveTicketId(ticketFromUrl);
+    }
+  }, [ticketFromUrl, tickets]);
 
   const loadMessages = async (ticketId: string) => {
     const res = await fetch(`/api/company/support/${ticketId}/messages`, { cache: "no-store" });

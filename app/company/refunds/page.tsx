@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
 type RefundRequest = {
@@ -14,6 +15,9 @@ type RefundRequest = {
 };
 
 export default function CompanyRefundsPage() {
+  const searchParams = useSearchParams();
+  const highlightRefund = searchParams.get("highlightRefund");
+
   const [refunds, setRefunds] = useState<RefundRequest[]>([]);
   const [amount, setAmount] = useState("100");
   const [destinationType, setDestinationType] = useState("BANK_TRANSFER");
@@ -44,6 +48,26 @@ export default function CompanyRefundsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!highlightRefund || refunds.length === 0) return;
+    const idx = refunds.findIndex((r) => r.id === highlightRefund);
+    if (idx < 0) return;
+    const nextPage = Math.floor(idx / pageSize) + 1;
+    setPage(nextPage);
+  }, [highlightRefund, refunds]);
+
+  useEffect(() => {
+    if (!highlightRefund) return;
+    const raf = requestAnimationFrame(() => {
+      const el = document.getElementById(`refund-req-${highlightRefund}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary");
+      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2500);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [highlightRefund, page, refunds]);
 
   const exportCsv = () => {
     const lines = [
@@ -138,7 +162,7 @@ export default function CompanyRefundsPage() {
         </div>
         <div className="space-y-2">
           {pagedRefunds.map((r) => (
-            <div key={r.id} className="rounded-md border p-3 text-sm">
+            <div key={r.id} id={`refund-req-${r.id}`} className="rounded-md border p-3 text-sm">
               <div className="flex justify-between">
                 <span>{Number(r.amountCoins || 0).toFixed(2)} coins</span>
                 <span>{r.status}</span>

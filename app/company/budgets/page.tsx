@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
 type Department = { id: string; label: string; isMainDepartment?: boolean };
@@ -25,6 +26,9 @@ type RequestRow = {
 };
 
 export default function CompanyBudgetsPage() {
+  const searchParams = useSearchParams();
+  const highlightRequest = searchParams.get("highlightRequest");
+
   const [departments, setDepartments] = useState<Department[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [requests, setRequests] = useState<RequestRow[]>([]);
@@ -73,6 +77,18 @@ export default function CompanyBudgetsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!highlightRequest) return;
+    const raf = requestAnimationFrame(() => {
+      const el = document.getElementById(`budget-req-${highlightRequest}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary");
+      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2500);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [highlightRequest, requests]);
 
   const savePolicy = async () => {
     setMessage(null);
@@ -237,7 +253,7 @@ export default function CompanyBudgetsPage() {
         <h2 className="mb-3 text-lg font-semibold">Budget Requests History</h2>
         <div className="space-y-2">
           {requests.map((r) => (
-            <div key={r.id} className="rounded-md border p-3 text-sm">
+            <div key={r.id} id={`budget-req-${r.id}`} className="rounded-md border p-3 text-sm">
               <div className="flex justify-between">
                 <span>{r.department?.label || r.departmentId}</span>
                 <span>{r.status}</span>

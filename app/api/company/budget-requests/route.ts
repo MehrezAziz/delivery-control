@@ -192,7 +192,13 @@ export async function POST(req: NextRequest) {
       auth.companyId,
       department.id,
       "BUDGET_REQUEST_CREATED",
-      { amountCoins, priority: body.priority === "URGENT" ? "URGENT" : "NORMAL", status: result.status },
+      {
+        requestId: result.id,
+        amountCoins,
+        priority: body.priority === "URGENT" ? "URGENT" : "NORMAL",
+        status: result.status,
+        groupKey: `budget:${result.id}`,
+      },
     );
 
     return NextResponse.json(result, { status: 201 });
