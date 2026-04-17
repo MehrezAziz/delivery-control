@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Pencil } from "lucide-react";
 
 type CompanyAddress = {
   id: string;
   label: string;
+  contactEmail?: string | null;
   city?: string | null;
   country?: string | null;
   street?: string | null;
@@ -34,6 +36,7 @@ export default function CompanyDepartmentsPage() {
   const [delegationId, setDelegationId] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const selectedCountry = geo.find((c) => c.id === countryId) || null;
@@ -71,6 +74,7 @@ export default function CompanyDepartmentsPage() {
     setDelegationId("");
     setLatitude("");
     setLongitude("");
+    setContactEmail("");
     setEditingId(null);
   };
 
@@ -86,6 +90,7 @@ export default function CompanyDepartmentsPage() {
     }
     return {
       label: label.trim(),
+      contactEmail: contactEmail.trim() || undefined,
       country: selectedCountry.name,
       governorate: selectedGovernorate.nameGovernorate,
       delegation: selectedDelegation.nameDelegation,
@@ -116,6 +121,7 @@ export default function CompanyDepartmentsPage() {
   const startEdit = (addr: CompanyAddress) => {
     setEditingId(addr.id);
     setLabel(addr.label || "");
+    setContactEmail(addr.contactEmail || "");
     setLatitude(addr.latitude != null ? String(addr.latitude) : "");
     setLongitude(addr.longitude != null ? String(addr.longitude) : "");
     const c = geo.find((x) => x.name === addr.country);
@@ -167,13 +173,13 @@ export default function CompanyDepartmentsPage() {
         <h2 className="mb-3 text-lg font-semibold">{editingId ? "Edit Department" : "Add Department"}</h2>
         <div className="grid gap-2 md:grid-cols-2">
           <input
-            className="rounded-md border px-3 py-2"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
             placeholder="Department label (nickname)"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
           <select
-            className="rounded-md border px-3 py-2"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
             value={countryId}
             onChange={(e) => {
               setCountryId(e.target.value);
@@ -189,7 +195,7 @@ export default function CompanyDepartmentsPage() {
             ))}
           </select>
           <select
-            className="rounded-md border px-3 py-2"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
             value={governorateId}
             onChange={(e) => {
               setGovernorateId(e.target.value);
@@ -203,7 +209,7 @@ export default function CompanyDepartmentsPage() {
               </option>
             ))}
           </select>
-          <select className="rounded-md border px-3 py-2" value={delegationId} onChange={(e) => setDelegationId(e.target.value)}>
+          <select className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]" value={delegationId} onChange={(e) => setDelegationId(e.target.value)}>
             <option value="">Select delegation</option>
             {(selectedGovernorate?.delegations || []).map((d) => (
               <option key={d.id} value={d.id}>
@@ -212,16 +218,23 @@ export default function CompanyDepartmentsPage() {
             ))}
           </select>
           <input
-            className="rounded-md border px-3 py-2"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
             placeholder="Latitude (required)"
             value={latitude}
             onChange={(e) => setLatitude(e.target.value)}
           />
           <input
-            className="rounded-md border px-3 py-2"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
             placeholder="Longitude (required)"
             value={longitude}
             onChange={(e) => setLongitude(e.target.value)}
+          />
+          <input
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark] md:col-span-2"
+            type="email"
+            placeholder="Department contact email (optional)"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
           />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -229,20 +242,32 @@ export default function CompanyDepartmentsPage() {
             href="https://www.openstreetmap.org"
             target="_blank"
             rel="noreferrer"
-            className="rounded-md border px-3 py-2 text-sm hover:bg-muted"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground hover:bg-muted"
           >
             Select exact position from map
           </a>
           {!editingId ? (
-            <button className="rounded-md border px-3 py-2" onClick={createDepartment}>
+            <button
+              type="button"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
+              onClick={createDepartment}
+            >
               Create
             </button>
           ) : (
             <>
-              <button className="rounded-md border px-3 py-2" onClick={saveEdit}>
+              <button
+                type="button"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
+                onClick={saveEdit}
+              >
                 Save update
               </button>
-              <button className="rounded-md border px-3 py-2" onClick={resetForm}>
+              <button
+                type="button"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
+                onClick={resetForm}
+              >
                 Cancel
               </button>
             </>
@@ -254,13 +279,22 @@ export default function CompanyDepartmentsPage() {
         <div className="space-y-2">
           {departments.map((addr) => (
             <div key={addr.id} className="rounded-md border p-3 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-2">
                 <span className="font-medium">{addr.label}</span>
-                <button className="rounded-md border px-2 py-1 text-xs" onClick={() => startEdit(addr)}>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted"
+                  onClick={() => startEdit(addr)}
+                  title="Edit department"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
                   Edit
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">ID: {addr.id}</p>
+              {addr.contactEmail && (
+                <p className="text-xs text-muted-foreground">Email: {addr.contactEmail}</p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {addr.country || "-"} - {addr.city || "-"} - {addr.street || "-"}
               </p>

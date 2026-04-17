@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { buildIdempotencyKey } from "@/lib/idempotency";
+import { connectSocket, getSocket } from "@/lib/socket";
 
 type CompanyOrder = {
   id: string;
   status: string;
   price?: string | number | null;
+  cancelAfterMinutes?: number | null;
+  cancelRemainingSeconds?: number | null;
+  cancelTimerLastResumedAt?: string | null;
   createdAt: string;
   sourceType?: string;
   description?: string | null;
@@ -38,8 +42,31 @@ type GeoTree = {
   }>;
 };
 
+function formatSearchingRemain(o: CompanyOrder): string {
+  if (o.status !== "SEARCHING_DRIVER") return "";
+  const base =
+    typeof o.cancelRemainingSeconds === "number"
+      ? o.cancelRemainingSeconds
+      : Math.max(0, Number(o.cancelAfterMinutes ?? 15) * 60);
+  const last = o.cancelTimerLastResumedAt ? new Date(o.cancelTimerLastResumedAt).getTime() : null;
+  const sec = last ? Math.max(0, base - Math.floor((Date.now() - last) / 1000)) : base;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function FieldLine({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium leading-tight text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 export default function CompanyOrdersPage() {
   const [orders, setOrders] = useState<CompanyOrder[]>([]);
+  const [listTick, setListTick] = useState(0);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [message, setMessage] = useState<string | null>(null);
@@ -50,6 +77,7 @@ export default function CompanyOrdersPage() {
   const [pickupAddressId, setPickupAddressId] = useState("");
   const [localPickupOnly, setLocalPickupOnly] = useState(false);
   const [weight, setWeight] = useState("1");
+  const [maxConfirmationDelayMinutes, setMaxConfirmationDelayMinutes] = useState("15");
   const [extraAmount, setExtraAmount] = useState("0");
   const [description, setDescription] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -72,9 +100,11 @@ export default function CompanyOrdersPage() {
     billingDistanceKm: number;
     pricePerKm: number;
     nightFee: number;
+    maxConfirmationDelayMinutes: number;
   } | null>(null);
   const [feedbackText, setFeedbackText] = useState<Record<string, string>>({});
   const [feedbackConditionIssue, setFeedbackConditionIssue] = useState<Record<string, boolean>>({});
+  const [addDelayMinutesByOrder, setAddDelayMinutesByOrder] = useState<Record<string, string>>({});
   const isChildDepartment = !!profile?.actorRole && profile.actorRole !== "MAIN_ADMIN";
   const selectedPickupAddress = (profile?.addresses || []).find((a) => a.id === pickupAddressId) || null;
   const pickupCountry = geo.countries.find(
@@ -87,6 +117,7 @@ export default function CompanyOrdersPage() {
   const delegations = selectedGovernorate?.delegations || [];
   const money = (value: number) => `${Number(value || 0).toFixed(2)} coins`;
 
+  const loadRef = useRef<((keepLoading?: boolean) => Promise<void>) | null>(null);
   const load = async (keepLoading = false) => {
     if (!keepLoading) setLoading(true);
     try {
@@ -120,14 +151,55 @@ export default function CompanyOrdersPage() {
       if (!keepLoading) setLoading(false);
     }
   };
+  loadRef.current = load;
 
   useEffect(() => {
     void load();
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const refresh = () => void loadRef.current?.(true);
+    async function initSocket() {
+      try {
+        const meRes = await fetch("/api/company-auth/me", { cache: "no-store" });
+        if (!meRes.ok || cancelled) return;
+        const me = await meRes.json();
+        if (!me?.token || cancelled) return;
+        const socket = connectSocket(String(me.token));
+        socket.on("notification", refresh);
+        socket.on("order_chat_refresh", refresh);
+      } catch {
+        /* ignore */
+      }
+    }
+    void initSocket();
+    return () => {
+      cancelled = true;
+      const s = getSocket();
+      s?.off("notification", refresh);
+      s?.off("order_chat_refresh", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Fallback realtime channel: keeps statuses fresh even if socket reconnect/auth briefly fails.
+    const interval = setInterval(() => {
+      void loadRef.current?.(true);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     setPage(1);
   }, [statusFilter]);
+
+  useEffect(() => {
+    const searching = orders.some((o) => o.status === "SEARCHING_DRIVER");
+    if (!searching) return;
+    const id = setInterval(() => setListTick((x) => x + 1), 1000);
+    return () => clearInterval(id);
+  }, [orders]);
 
   useEffect(() => {
     if (!selectedPickupAddress || !governorates.length) return;
@@ -183,6 +255,7 @@ export default function CompanyOrdersPage() {
       dropoffStreet: localPickupOnly ? undefined : dropoffStreet.trim() || undefined,
       localPickupOnly,
       weight: Number(weight),
+      maxConfirmationDelayMinutes: Number(maxConfirmationDelayMinutes || 15),
       customerExtraAmount: Number(extraAmount || 0),
       description: notes || undefined,
     };
@@ -258,6 +331,28 @@ export default function CompanyOrdersPage() {
     }
   };
 
+  const addConfirmationDelay = async (orderId: string) => {
+    setMessage(null);
+    try {
+      const minutesToAdd = Number(addDelayMinutesByOrder[orderId] || "0");
+      if (!Number.isFinite(minutesToAdd) || minutesToAdd < 1) {
+        throw new Error("Please enter minutes to add (minimum 1).");
+      }
+      const res = await fetch(`/api/company/orders/${orderId}/add-confirmation-delay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minutesToAdd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || data?.message || "Failed to add confirmation delay");
+      setMessage(`Added ${minutesToAdd} minutes to order confirmation delay.`);
+      setAddDelayMinutesByOrder((prev) => ({ ...prev, [orderId]: "15" }));
+      await load(true);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : "Failed to add confirmation delay");
+    }
+  };
+
   if (loading) return <div>Loading orders...</div>;
 
   const statuses = Array.from(new Set(orders.map((o) => o.status)));
@@ -298,81 +393,129 @@ export default function CompanyOrdersPage() {
       <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-slate-900">
         <h2 className="mb-3 text-lg font-semibold">Create Delivery Order</h2>
         <div className="grid gap-3 md:grid-cols-2">
-          <select
-            className="rounded-md border px-3 py-2"
-            value={pickupAddressId}
-            onChange={(e) => setPickupAddressId(e.target.value)}
-            disabled={isChildDepartment}
-          >
-            <option value="">{isChildDepartment ? "Your department source address" : "Select source department address"}</option>
-            {(isChildDepartment
-              ? (profile?.addresses || []).filter((addr) => addr.id === profile?.departmentId)
-              : profile?.addresses || []
-            ).map((addr) => (
-              <option key={addr.id} value={addr.id}>
-                {addr.label} ({addr.id.slice(0, 8)})
-              </option>
-            ))}
-          </select>
-          <input
-            className="rounded-md border px-3 py-2"
-            placeholder="Customer full name (required)"
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-          />
-          <input
-            className="rounded-md border px-3 py-2"
-            placeholder="Customer phone (required)"
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-          />
-          {!localPickupOnly && (
+          <FieldLine label="Source department (pickup)">
             <select
-              className="rounded-md border px-3 py-2"
-              value={dropoffGovernorateId}
-              onChange={(e) => setDropoffGovernorateId(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              value={pickupAddressId}
+              onChange={(e) => setPickupAddressId(e.target.value)}
+              disabled={isChildDepartment}
             >
-              <option value="">Select destination governorate</option>
-              {governorates.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.nameGovernorate}
+              <option value="">{isChildDepartment ? "Your department source address" : "Select department"}</option>
+              {(isChildDepartment
+                ? (profile?.addresses || []).filter((addr) => addr.id === profile?.departmentId)
+                : profile?.addresses || []
+              ).map((addr) => (
+                <option key={addr.id} value={addr.id}>
+                  {addr.label} ({addr.id.slice(0, 8)})
                 </option>
               ))}
             </select>
-          )}
-          {!localPickupOnly && (
-            <select
-              className="rounded-md border px-3 py-2"
-              value={dropoffDelegationId}
-              onChange={(e) => setDropoffDelegationId(e.target.value)}
-              disabled={!dropoffGovernorateId}
-            >
-              <option value="">Select destination delegation</option>
-              {delegations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nameDelegation}
-                </option>
-              ))}
-            </select>
-          )}
-          {!localPickupOnly && (
+          </FieldLine>
+          <FieldLine label="Customer full name">
             <input
-              className="rounded-md border px-3 py-2 md:col-span-2"
-              value={dropoffStreet}
-              onChange={(e) => setDropoffStreet(e.target.value)}
-              placeholder="Street / building / landmark (optional)"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
             />
+          </FieldLine>
+          <FieldLine label="Customer phone">
+            <input
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+            />
+          </FieldLine>
+          {!localPickupOnly && (
+            <FieldLine label="Destination governorate">
+              <select
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+                value={dropoffGovernorateId}
+                onChange={(e) => setDropoffGovernorateId(e.target.value)}
+              >
+                <option value="">Select governorate</option>
+                {governorates.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.nameGovernorate}
+                  </option>
+                ))}
+              </select>
+            </FieldLine>
           )}
-          <input className="rounded-md border px-3 py-2" type="number" min="0" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="Weight" />
-          <input className="rounded-md border px-3 py-2" type="number" min="0" step="0.1" value={extraAmount} onChange={(e) => setExtraAmount(e.target.value)} placeholder="Additional driver price (default 0)" />
+          {!localPickupOnly && (
+            <FieldLine label="Destination delegation">
+              <select
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+                value={dropoffDelegationId}
+                onChange={(e) => setDropoffDelegationId(e.target.value)}
+                disabled={!dropoffGovernorateId}
+              >
+                <option value="">Select delegation</option>
+                {delegations.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nameDelegation}
+                  </option>
+                ))}
+              </select>
+            </FieldLine>
+          )}
+          {!localPickupOnly && (
+            <FieldLine label="Street / landmark (optional)">
+              <input
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark] md:col-span-2"
+                value={dropoffStreet}
+                onChange={(e) => setDropoffStreet(e.target.value)}
+              />
+            </FieldLine>
+          )}
+          <FieldLine label="Weight (kg)">
+            <input
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              type="number"
+              min="0"
+              step="0.1"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+            />
+          </FieldLine>
+          <FieldLine label="Confirmation / auto-cancel window (minutes)">
+            <input
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              type="number"
+              min="1"
+              max="180"
+              step="1"
+              value={maxConfirmationDelayMinutes}
+              onChange={(e) => setMaxConfirmationDelayMinutes(e.target.value)}
+            />
+          </FieldLine>
+          <FieldLine label="Additional driver price (coins)">
+            <input
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+              type="number"
+              min="0"
+              step="0.1"
+              value={extraAmount}
+              onChange={(e) => setExtraAmount(e.target.value)}
+            />
+          </FieldLine>
         </div>
-        <textarea className="mt-3 min-h-20 w-full rounded-md border px-3 py-2" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" />
+        <FieldLine label="Description (optional)">
+          <textarea
+            className="mt-1 min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground dark:[color-scheme:dark]"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </FieldLine>
         <label className="mt-3 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={localPickupOnly} onChange={(e) => setLocalPickupOnly(e.target.checked)} />
           Local pickup only
         </label>
         <div className="mt-3 flex gap-2">
-          <button className="rounded-md border px-3 py-2" onClick={runPreview}>
+          <button
+            type="button"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
+            onClick={runPreview}
+          >
             Preview
           </button>
         </div>
@@ -400,6 +543,7 @@ export default function CompanyOrdersPage() {
               <div className="rounded-lg border bg-background/70 px-3 py-2">Billing distance: <b>{Number(preview.billingDistanceKm || 0).toFixed(2)} km</b></div>
               <div className="rounded-lg border bg-background/70 px-3 py-2">Price / km: <b>{money(preview.pricePerKm || 0)}</b></div>
               <div className="rounded-lg border bg-background/70 px-3 py-2">Night fee: <b>{money(preview.nightFee || 0)}</b></div>
+              <div className="rounded-lg border bg-background/70 px-3 py-2">Confirmation delay: <b>{Number(preview.maxConfirmationDelayMinutes || 15)} min</b></div>
               <div className="rounded-lg border bg-background/70 px-3 py-2">Additional driver price: <b>{money(preview.customerExtraAmount || 0)}</b></div>
               <div className="rounded-lg border bg-background/70 px-3 py-2">Price after discount: <b>{money(preview.discountedPrice || 0)}</b></div>
               <div className="rounded-lg border bg-background/70 px-3 py-2">Discount: <b>{Number(preview.effectiveDiscountPercent || 0).toFixed(2)}%</b></div>
@@ -422,7 +566,11 @@ export default function CompanyOrdersPage() {
       <section className="rounded-lg border p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold">Orders</h2>
-          <select className="rounded-md border px-2 py-1 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground dark:[color-scheme:dark]"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
             <option value="ALL">All statuses</option>
             {statuses.map((s) => (
               <option key={s} value={s}>
@@ -445,6 +593,39 @@ export default function CompanyOrdersPage() {
               <p className="text-muted-foreground">
                 Price: {Number(order.price || 0).toFixed(2)} | Source: {order.sourceType || "-"}
               </p>
+              {order.status === "SEARCHING_DRIVER" && (
+                <div className="mt-2 rounded-md border p-2">
+                  <span className="hidden" aria-hidden>
+                    {listTick}
+                  </span>
+                  <div className="mb-1 text-xs text-muted-foreground">
+                    Auto-cancel window: {Number(order.cancelAfterMinutes || 15)} min · Remaining:{" "}
+                    <span className="font-mono font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                      {formatSearchingRemain(order)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="w-28 rounded-md border px-2 py-1 text-xs"
+                      type="number"
+                      min="1"
+                      max="180"
+                      step="1"
+                      value={addDelayMinutesByOrder[order.id] ?? "15"}
+                      onChange={(e) =>
+                        setAddDelayMinutesByOrder((prev) => ({ ...prev, [order.id]: e.target.value }))
+                      }
+                      placeholder="Add minutes"
+                    />
+                    <button
+                      className="rounded-md border px-2 py-1 text-xs"
+                      onClick={() => addConfirmationDelay(order.id)}
+                    >
+                      Add Time
+                    </button>
+                  </div>
+                </div>
+              )}
               {order.status === "RETURN_DEPOSIT" && (
                 <div className="mt-2 space-y-2 rounded-md border p-2">
                   <textarea

@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireCompanyAuth();
-    ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN"]);
+    ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN"]);
     const body = await req.json();
     if (!body?.label || !body?.country || !body?.governorate || !body?.delegation) {
       return NextResponse.json({ error: "Country, governorate, delegation and label are required" }, { status: 400 });
@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       data: {
         deliveryCompanyId: auth.companyId,
         label: String(body.label),
+        contactEmail: body.contactEmail ? String(body.contactEmail).trim() : null,
         country: String(body.country),
         city: String(body.governorate),
         street: String(body.delegation),
@@ -43,7 +44,8 @@ export async function POST(req: NextRequest) {
         latitude: body.latitude,
         longitude: body.longitude,
         isDefault: !!body.isDefault,
-      },
+      // contactEmail: run `npx prisma generate` after migrations so types include this field
+      } as any,
     });
     await logCompanyAudit(
       auth.companyId,
@@ -71,13 +73,14 @@ export async function PATCH(req: NextRequest) {
       where,
       data: {
         label: body.label ? String(body.label) : undefined,
+        contactEmail: body.contactEmail !== undefined ? (body.contactEmail ? String(body.contactEmail).trim() : null) : undefined,
         country: body.country ? String(body.country) : undefined,
         city: body.governorate ? String(body.governorate) : undefined,
         street: body.delegation ? String(body.delegation) : undefined,
         postalCode: body.delegationId ? String(body.delegationId) : undefined,
         latitude: typeof body.latitude === "number" ? body.latitude : undefined,
         longitude: typeof body.longitude === "number" ? body.longitude : undefined,
-      },
+      } as any,
     });
     if (!updated.count) return NextResponse.json({ error: "Department not found" }, { status: 404 });
     await logCompanyAudit(

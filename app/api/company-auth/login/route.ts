@@ -127,11 +127,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const mainDept = await db.deliveryCompanyAddress.findFirst({
-      where: { deliveryCompanyId: resolvedCompanyId, isMainDepartment: true },
-      select: { id: true },
-    });
-    if (mainDept?.id) departmentId = mainDept.id;
+    // Do not overwrite department context for signed-in department accounts.
+    if (!departmentAccountId) {
+      const mainDept = await db.deliveryCompanyAddress.findFirst({
+        where: { deliveryCompanyId: resolvedCompanyId, isMainDepartment: true },
+        select: { id: true },
+      });
+      if (mainDept?.id) departmentId = mainDept.id;
+    }
 
     const token = await signCompanyToken({
       companyId: resolvedCompanyId,

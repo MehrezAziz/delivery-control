@@ -32,6 +32,9 @@ export async function POST(req: NextRequest) {
     const auth = await requireCompanyAuth();
     await ensureCompanyIsActive(auth.companyId);
     ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR"]);
+    if (isMainDepartmentActor(auth)) {
+      return NextResponse.json({ error: "Main company cannot create budget requests. Department accounts must request coins." }, { status: 403 });
+    }
     const idempotencyHeader = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key");
     if (!idempotencyHeader) {
       return NextResponse.json({ error: "Idempotency-Key header is required" }, { status: 400 });
@@ -43,16 +46,17 @@ export async function POST(req: NextRequest) {
     );
     const db: any = prisma;
     const body = await req.json();
-    if (!body?.departmentId || !body?.amountCoins) {
-      return NextResponse.json({ error: "departmentId and amountCoins are required" }, { status: 400 });
+    if (!body?.amountCoins) {
+      return NextResponse.json({ error: "amountCoins is required" }, { status: 400 });
     }
+    const requestedDepartmentId = auth.departmentId || "__none__";
     const amountCoins = Number(body.amountCoins);
     if (!Number.isFinite(amountCoins) || amountCoins <= 0) {
       return NextResponse.json({ error: "Invalid amountCoins" }, { status: 400 });
     }
 
     const department = await db.deliveryCompanyAddress.findFirst({
-      where: { id: String(body.departmentId), deliveryCompanyId: auth.companyId },
+      where: { id: requestedDepartmentId, deliveryCompanyId: auth.companyId },
       select: { id: true, isMainDepartment: true },
     });
     if (!department) return NextResponse.json({ error: "Department not found" }, { status: 404 });
@@ -110,7 +114,7 @@ export async function POST(req: NextRequest) {
       const request = await tx.deliveryCompanyDepartmentBudgetRequest.create({
         data: {
           deliveryCompanyId: auth.companyId,
-          departmentId: department.id,
+          departmentId: requestedDepartmentId,
           amountCoins,
           priority: body.priority === "URGENT" ? "URGENT" : "NORMAL",
           status: canAutoApprove ? "AUTO_APPROVED" : "PENDING",

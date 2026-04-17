@@ -4,10 +4,12 @@ import Link from "next/link";
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CompanyNotificationBell } from "@/components/company-notification-bell";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Building2,
+  Bell,
   ChartColumn,
   KeyRound,
   LayoutDashboard,
@@ -15,14 +17,18 @@ import {
   Menu,
   Package,
   Settings,
+  LifeBuoy,
   Wallet,
   X,
 } from "lucide-react";
 
 type CompanyAuthMe = {
   companyId: string;
+  companyName?: string | null;
   name?: string | null;
   contactEmail?: string | null;
+  departmentId?: string | null;
+  departmentLabel?: string | null;
   onboardingCompleted?: boolean;
   actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER";
 };
@@ -53,14 +59,16 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
       const isMain = (profile?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
       const items: NavItem[] = [
       { href: "/company/dashboard", label: "Overview", icon: LayoutDashboard },
+      { href: "/company/notifications", label: "Notifications", icon: Bell },
       { href: "/company/orders", label: "Orders", icon: Package },
       { href: "/company/departments", label: "Departments", icon: Building2 },
       { href: "/company/wallet", label: "Wallet", icon: Wallet },
       { href: "/company/stats", label: "Statistics", icon: ChartColumn },
       ...(isMain ? [{ href: "/company/refunds", label: "Refunds", icon: Wallet }] : []),
       ...(isMain ? [{ href: "/company/api-keys", label: "API Keys", icon: KeyRound }] : []),
-      ...(isMain ? [{ href: "/company/budgets", label: "Budgets", icon: Wallet }] : []),
+      { href: "/company/budgets", label: "Budgets", icon: Wallet },
       ...(isMain ? [{ href: "/company/department-accounts", label: "Department Accounts", icon: Building2 }] : []),
+      { href: "/company/support", label: "Support", icon: LifeBuoy },
       ...(isMain ? [{
         href: "/company/setup",
         label: "Setup",
@@ -142,13 +150,16 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
             </Button>
             <div className="min-w-0">
               <h2 className="truncate text-sm font-medium">
-                {profile?.name || "Delivery Company Workspace"}
+                {profile?.companyName || profile?.name || "Delivery Company Workspace"}
               </h2>
               <p className="truncate text-xs text-muted-foreground">
-                {profile?.contactEmail || "Manage orders, wallet, and integrations"}{profile?.actorRole ? ` • ${profile.actorRole}` : ""}
+                {(profile?.departmentId ? profile?.departmentLabel || profile?.contactEmail : profile?.contactEmail) ||
+                  "Manage orders, wallet, and integrations"}
+                {profile?.actorRole ? ` • ${profile.actorRole}` : ""}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <CompanyNotificationBell />
               <ThemeToggle />
             </div>
           </div>

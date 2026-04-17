@@ -38,6 +38,10 @@ export default function CompanyBudgetsPage() {
   const [priority, setPriority] = useState("NORMAL");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actorRole, setActorRole] = useState<string>("MAIN_ADMIN");
+  const [transferDepartmentId, setTransferDepartmentId] = useState("");
+  const [transferAmount, setTransferAmount] = useState("50");
+  const isMain = actorRole === "MAIN_ADMIN";
 
   const load = async () => {
     setLoading(true);
@@ -48,9 +52,15 @@ export default function CompanyBudgetsPage() {
         fetch("/api/company/budget-policies").then((x) => x.json()),
         fetch("/api/company/budget-requests").then((x) => x.json()),
       ]);
+      const me = await fetch("/api/company-auth/me").then((x) => x.json()).catch(() => null);
+      if (me?.actorRole) setActorRole(String(me.actorRole));
       const deps = Array.isArray(dep) ? dep : [];
       setDepartments(deps);
       if (!departmentId && deps.length > 0) setDepartmentId(deps[0].id);
+      if (!transferDepartmentId && deps.length > 0) {
+        const firstChild = deps.find((d: Department) => !d.isMainDepartment);
+        setTransferDepartmentId((firstChild || deps[0]).id);
+      }
       setPolicies(Array.isArray(pol) ? pol : []);
       setRequests(Array.isArray(reqs) ? reqs : []);
     } catch (e: unknown) {
@@ -87,7 +97,6 @@ export default function CompanyBudgetsPage() {
   const createRequest = async () => {
     setMessage(null);
     const payload = {
-      departmentId,
       amountCoins: Number(requestAmount || 0),
       priority,
     };
@@ -103,6 +112,22 @@ export default function CompanyBudgetsPage() {
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to create budget request");
     setMessage(`Budget request created (${data.status}).`);
+    await load();
+  };
+
+  const transferCoins = async () => {
+    setMessage(null);
+    const res = await fetch("/api/company/budget-transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        departmentId: transferDepartmentId,
+        amountCoins: Number(transferAmount || 0),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to transfer coins");
+    setMessage("Coins sent successfully.");
     await load();
   };
 
@@ -125,6 +150,7 @@ export default function CompanyBudgetsPage() {
   return (
     <div className="space-y-6">
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
+      {isMain && (
       <section className="rounded-lg border p-4 space-y-3">
         <h2 className="text-lg font-semibold">Budget Policy (Main Department)</h2>
         <div className="grid gap-2 md:grid-cols-2">
@@ -155,7 +181,9 @@ export default function CompanyBudgetsPage() {
         </div>
         <button className="rounded-md border px-3 py-2" onClick={savePolicy}>Save policy</button>
       </section>
+      )}
 
+      {!isMain && (
       <section className="rounded-lg border p-4 space-y-3">
         <h2 className="text-lg font-semibold">Budget Request</h2>
         <div className="grid gap-2 md:grid-cols-3">
@@ -167,7 +195,25 @@ export default function CompanyBudgetsPage() {
           <button className="rounded-md border px-3 py-2" onClick={createRequest}>Create request</button>
         </div>
       </section>
+      )}
 
+      {isMain && (
+      <section className="rounded-lg border p-4 space-y-3">
+        <h2 className="text-lg font-semibold">Send Coins to Department</h2>
+        <div className="grid gap-2 md:grid-cols-3">
+          <select className="rounded-md border px-3 py-2" value={transferDepartmentId} onChange={(e) => setTransferDepartmentId(e.target.value)}>
+            <option value="">Select department</option>
+            {departments.filter((d) => !d.isMainDepartment).map((d) => (
+              <option key={d.id} value={d.id}>{d.label}</option>
+            ))}
+          </select>
+          <input className="rounded-md border px-3 py-2" type="number" min="1" step="0.1" value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} placeholder="Amount in coins" />
+          <button className="rounded-md border px-3 py-2" onClick={transferCoins}>Send coins</button>
+        </div>
+      </section>
+      )}
+
+      {isMain && (
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 text-lg font-semibold">Active Policies</h2>
         <div className="space-y-2">
@@ -185,6 +231,7 @@ export default function CompanyBudgetsPage() {
           {policies.length === 0 && <p className="text-sm text-muted-foreground">No policies yet.</p>}
         </div>
       </section>
+      )}
 
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 text-lg font-semibold">Budget Requests History</h2>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { companyBackendFetch } from "@/lib/company-api";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { isMainDepartmentActor } from "@/lib/company-security";
 
 export async function GET() {
   try {
@@ -8,8 +9,15 @@ export async function GET() {
     const res = await companyBackendFetch("/profile");
     const data = await res.json();
     if (!res.ok) return NextResponse.json(data, { status: res.status });
+    const scoped =
+      isMainDepartmentActor(auth)
+        ? data
+        : (() => {
+            const { coinBalance: _cb, lockedCoins: _lc, maxNegativeBalance: _mnb, ...rest } = data as Record<string, unknown>;
+            return rest;
+          })();
     return NextResponse.json({
-      ...data,
+      ...scoped,
       actorRole: auth.actorRole || "MAIN_ADMIN",
       departmentId: auth.departmentId || null,
       departmentAccountId: auth.departmentAccountId || null,

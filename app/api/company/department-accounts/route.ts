@@ -13,7 +13,21 @@ export async function GET() {
     const rows = await db.deliveryCompanyDepartmentAccount.findMany({
       where: { deliveryCompanyId: auth.companyId },
       orderBy: { createdAt: "desc" },
-      include: { department: { select: { id: true, label: true, isMainDepartment: true } } },
+      include: {
+        department: {
+          select: {
+            id: true,
+            label: true,
+            isMainDepartment: true,
+            country: true,
+            city: true,
+            street: true,
+            postalCode: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
+      },
     });
     return NextResponse.json(rows);
   } catch (e: unknown) {
