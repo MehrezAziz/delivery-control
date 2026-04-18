@@ -26,7 +26,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const existingRequest = await prisma.deliveryCompanyDepartmentBudgetRequest.findUnique({
       where: { id },
-      select: { deliveryCompanyId: true, departmentId: true, amountCoins: true },
+      select: { deliveryCompanyId: true, departmentId: true, amountCoins: true, requestedByAccountId: true },
     });
     if (!existingRequest) {
       return NextResponse.json({ error: "Budget request not found" }, { status: 404 });
@@ -148,10 +148,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       },
     );
     try {
-      await emitDepartmentNotification(existingRequest.deliveryCompanyId, existingRequest.departmentId, "BUDGET_REQUEST_DECIDED", {
+      const recipientId = existingRequest.requestedByAccountId || existingRequest.departmentId;
+      await emitDepartmentNotification(existingRequest.deliveryCompanyId, recipientId, "BUDGET_REQUEST_DECIDED", {
         requestId: id,
         decision,
         amountCoins: Number(existingRequest.amountCoins ?? 0),
+        groupKey: `budget:${id}`,
       });
     } catch {
       // non-blocking notification dispatch

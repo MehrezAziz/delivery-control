@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
-import { ensureCompanyRoleAllowed, isMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
+import {
+  ensureCompanyRoleAllowed,
+  isMainDepartmentActor,
+  logCompanyAudit,
+  repairDepartmentMainDefaultInvariants,
+} from "@/lib/company-security";
 
 export async function GET() {
   try {
@@ -47,6 +52,7 @@ export async function POST(req: NextRequest) {
       // contactEmail: run `npx prisma generate` after migrations so types include this field
       } as any,
     });
+    await repairDepartmentMainDefaultInvariants(auth.companyId);
     await logCompanyAudit(
       auth.companyId,
       "DEPARTMENT_CREATED",
@@ -67,31 +73,98 @@ export async function PATCH(req: NextRequest) {
     ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN"]);
     const body = await req.json();
     if (!body?.id) return NextResponse.json({ error: "Department id is required" }, { status: 400 });
-    const where: any = { id: String(body.id), deliveryCompanyId: auth.companyId };
+
+    const deptId = String(body.id);
+    const where: any = { id: deptId, deliveryCompanyId: auth.companyId };
     if (!isMainDepartmentActor(auth)) where.id = auth.departmentId || "__none__";
-    const updated = await prisma.deliveryCompanyAddress.updateMany({
-      where,
-      data: {
-        label: body.label ? String(body.label) : undefined,
-        contactEmail: body.contactEmail !== undefined ? (body.contactEmail ? String(body.contactEmail).trim() : null) : undefined,
-        country: body.country ? String(body.country) : undefined,
-        city: body.governorate ? String(body.governorate) : undefined,
-        street: body.delegation ? String(body.delegation) : undefined,
-        postalCode: body.delegationId ? String(body.delegationId) : undefined,
-        latitude: typeof body.latitude === "number" ? body.latitude : undefined,
-        longitude: typeof body.longitude === "number" ? body.longitude : undefined,
-      } as any,
+
+    const designateMain = body.designateMain === true;
+    const designateDefault = body.designateDefault === true;
+    if ((designateMain || designateDefault) && !isMainDepartmentActor(auth)) {
+      return NextResponse.json(
+        { error: "Only the main company account can change which department is main or default" },
+        { status: 403 },
+      );
+    }
+
+    const wantsDetailUpdate =
+      !!(body.label && String(body.label).trim()) ||
+      !!body.country ||
+      !!body.governorate ||
+      !!body.delegation ||
+      body.contactEmail !== undefined ||
+      typeof body.latitude === "number" ||
+      typeof body.longitude === "number" ||
+      !!body.delegationId;
+
+    if (!designateMain && !designateDefault && !wantsDetailUpdate) {
+      return NextResponse.json({ error: "No changes requested" }, { status: 400 });
+    }
+
+    const db: any = prisma;
+
+    await db.$transaction(async (tx: any) => {
+      if (designateMain || designateDefault) {
+        const exists = await tx.deliveryCompanyAddress.findFirst({
+          where: { id: deptId, deliveryCompanyId: auth.companyId },
+        });
+        if (!exists) throw Object.assign(new Error("Department not found"), { status: 404 });
+        if (designateMain) {
+          await tx.deliveryCompanyAddress.updateMany({
+            where: { deliveryCompanyId: auth.companyId },
+            data: { isMainDepartment: false },
+          });
+          await tx.deliveryCompanyAddress.update({
+            where: { id: deptId },
+            data: { isMainDepartment: true },
+          });
+        }
+        if (designateDefault) {
+          await tx.deliveryCompanyAddress.updateMany({
+            where: { deliveryCompanyId: auth.companyId },
+            data: { isDefault: false },
+          });
+          await tx.deliveryCompanyAddress.update({
+            where: { id: deptId },
+            data: { isDefault: true },
+          });
+        }
+      }
+
+      if (wantsDetailUpdate) {
+        const data: any = {};
+        if (body.label && String(body.label).trim()) data.label = String(body.label).trim();
+        if (body.contactEmail !== undefined) data.contactEmail = body.contactEmail ? String(body.contactEmail).trim() : null;
+        if (body.country) data.country = String(body.country);
+        if (body.governorate) data.city = String(body.governorate);
+        if (body.delegation) data.street = String(body.delegation);
+        if (body.delegationId) data.postalCode = String(body.delegationId);
+        if (typeof body.latitude === "number") data.latitude = body.latitude;
+        if (typeof body.longitude === "number") data.longitude = body.longitude;
+        if (Object.keys(data).length > 0) {
+          const updated = await tx.deliveryCompanyAddress.updateMany({ where, data });
+          if (!updated.count) throw Object.assign(new Error("Department not found"), { status: 404 });
+        }
+      }
     });
-    if (!updated.count) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+
+    const auditDetails: Record<string, unknown> = { departmentId: deptId };
+    if (designateMain) auditDetails.designateMain = true;
+    if (designateDefault) auditDetails.designateDefault = true;
+    await repairDepartmentMainDefaultInvariants(auth.companyId);
     await logCompanyAudit(
       auth.companyId,
-      "DEPARTMENT_UPDATED",
+      designateMain || designateDefault ? "DEPARTMENT_DESIGNATION_UPDATED" : "DEPARTMENT_UPDATED",
       "COMPANY",
       auth.departmentAccountId || auth.companyId,
-      { departmentId: String(body.id) },
+      auditDetails,
     );
     return NextResponse.json({ success: true });
   } catch (e: unknown) {
+    const status = e && typeof e === "object" && "status" in e ? (e as { status?: number }).status : undefined;
+    if (status === 404) {
+      return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    }
     const msg = e instanceof Error ? e.message : "Failed to update department";
     return NextResponse.json({ error: msg }, { status: 500 });
   }

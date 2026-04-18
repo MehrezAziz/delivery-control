@@ -182,12 +182,13 @@ export async function POST(
       auth.departmentAccountId || auth.companyId,
       { requestId: request.id, decision, departmentId: request.departmentId, amountCoins: request.amountCoins },
     );
-    await emitDepartmentNotification(
-      auth.companyId,
-      request.departmentId,
-      "BUDGET_REQUEST_DECIDED",
-      { requestId: request.id, decision, amountCoins: Number(request.amountCoins || 0) },
-    );
+    const recipientId = request.requestedByAccountId || request.departmentId;
+    await emitDepartmentNotification(auth.companyId, recipientId, "BUDGET_REQUEST_DECIDED", {
+      requestId: request.id,
+      decision,
+      amountCoins: Number(request.amountCoins || 0),
+      groupKey: `budget:${request.id}`,
+    });
 
     return NextResponse.json(result);
   } catch (e: unknown) {

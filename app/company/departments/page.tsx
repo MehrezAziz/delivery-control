@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Pencil, Trash2 } from "lucide-react";
 
 type CompanyAddress = {
   id: string;
@@ -13,6 +14,7 @@ type CompanyAddress = {
   latitude?: number | null;
   longitude?: number | null;
   isDefault?: boolean;
+  isMainDepartment?: boolean;
 };
 
 type GeoCountry = {
@@ -26,6 +28,7 @@ type GeoCountry = {
 };
 
 export default function CompanyDepartmentsPage() {
+  const router = useRouter();
   const [departments, setDepartments] = useState<CompanyAddress[]>([]);
   const [geo, setGeo] = useState<GeoCountry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,8 @@ export default function CompanyDepartmentsPage() {
   const [longitude, setLongitude] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isMainCompanyUser, setIsMainCompanyUser] = useState(false);
+  const [accessGate, setAccessGate] = useState<"pending" | "ok" | "denied">("pending");
 
   const selectedCountry = geo.find((c) => c.id === countryId) || null;
   const selectedGovernorate = selectedCountry?.governorates.find((g) => g.id === governorateId) || null;
@@ -64,8 +69,29 @@ export default function CompanyDepartmentsPage() {
   };
 
   useEffect(() => {
+    fetch("/api/company-auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const ok = (data?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
+        setIsMainCompanyUser(ok);
+        if (!ok) {
+          setAccessGate("denied");
+          router.replace("/company/dashboard");
+        } else {
+          setAccessGate("ok");
+        }
+      })
+      .catch(() => {
+        setIsMainCompanyUser(false);
+        setAccessGate("denied");
+        router.replace("/company/dashboard");
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (accessGate !== "ok") return;
     void load();
-  }, []);
+  }, [accessGate]);
 
   const resetForm = () => {
     setLabel("");
@@ -163,6 +189,80 @@ export default function CompanyDepartmentsPage() {
       setMessage(e instanceof Error ? e.message : "Failed to update department");
     }
   };
+
+  const designateMain = async (id: string) => {
+    const ok = window.confirm(
+      "Set this department as the main department? Only one department can be main; the previous main will no longer be main.",
+    );
+    if (!ok) return;
+    setMessage(null);
+    try {
+      const res = await fetch("/api/company/departments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, designateMain: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to update main department");
+      setMessage("Main department updated.");
+      await load(true);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : "Failed to update main department");
+    }
+  };
+
+  const designateDefault = async (id: string) => {
+    const ok = window.confirm(
+      "Set this department as the default department? This is used as the default choice where a single department applies.",
+    );
+    if (!ok) return;
+    setMessage(null);
+    try {
+      const res = await fetch("/api/company/departments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, designateDefault: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to update default department");
+      setMessage("Default department updated.");
+      await load(true);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : "Failed to update default department");
+    }
+  };
+
+  const deleteDepartment = async (addr: CompanyAddress) => {
+    const ok = window.confirm(
+      `Delete department "${addr.label}"?\n\n` +
+        "All budget coins for this department (including a negative balance) will be moved to the main company wallet. " +
+        "Department logins and related data will be removed. If this was the main department, another department will become main. " +
+        "This cannot be undone.",
+    );
+    if (!ok) return;
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/company/departments/${encodeURIComponent(addr.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to delete department");
+      const returned = typeof data?.returnedCoins === "number" ? data.returnedCoins : null;
+      setMessage(
+        returned != null && returned !== 0
+          ? `Department deleted. Returned ${returned} coins to the main company wallet.`
+          : "Department deleted.",
+      );
+      if (editingId === addr.id) resetForm();
+      await load(true);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : "Failed to delete department");
+    }
+  };
+
+  if (accessGate !== "ok") {
+    return <div className="text-sm text-muted-foreground">Loading…</div>;
+  }
 
   if (loading) return <div>Loading departments...</div>;
 
@@ -279,17 +379,62 @@ export default function CompanyDepartmentsPage() {
         <div className="space-y-2">
           {departments.map((addr) => (
             <div key={addr.id} className="rounded-md border p-3 text-sm">
-              <div className="flex justify-between gap-2">
-                <span className="font-medium">{addr.label}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted"
-                  onClick={() => startEdit(addr)}
-                  title="Edit department"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </button>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{addr.label}</span>
+                  {addr.isMainDepartment && (
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-primary">
+                      Main
+                    </span>
+                  )}
+                  {addr.isDefault && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {isMainCompanyUser && (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                        onClick={() => designateMain(addr.id)}
+                        disabled={!!addr.isMainDepartment}
+                        title={addr.isMainDepartment ? "Already main" : "Set as main department"}
+                      >
+                        Set main
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                        onClick={() => designateDefault(addr.id)}
+                        disabled={!!addr.isDefault}
+                        title={addr.isDefault ? "Already default" : "Set as default department"}
+                      >
+                        Set default
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                        onClick={() => deleteDepartment(addr)}
+                        title="Delete department"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted"
+                    onClick={() => startEdit(addr)}
+                    title="Edit department"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">ID: {addr.id}</p>
               {addr.contactEmail && (

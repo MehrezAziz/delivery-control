@@ -12,7 +12,15 @@ export async function GET() {
     const rows = await db.deliveryCompanyDepartmentBudgetPolicy.findMany({
       where: { deliveryCompanyId: auth.companyId },
       orderBy: { createdAt: "desc" },
-      include: { department: { select: { id: true, label: true, isMainDepartment: true } } },
+      include: {
+        departmentAccount: {
+          select: {
+            id: true,
+            email: true,
+            department: { select: { id: true, label: true, isMainDepartment: true } },
+          },
+        },
+      },
     });
     return NextResponse.json(rows);
   } catch (e: unknown) {
@@ -28,20 +36,21 @@ export async function POST(req: NextRequest) {
     ensureMainDepartmentActor(auth);
     const db: any = prisma;
     const body = await req.json();
-    if (!body?.departmentId || !body?.periodType) {
-      return NextResponse.json({ error: "departmentId and periodType are required" }, { status: 400 });
+    const deptAccountId = String(body?.departmentAccountId || body?.departmentId || "");
+    if (!deptAccountId || !body?.periodType) {
+      return NextResponse.json({ error: "departmentAccountId and periodType are required" }, { status: 400 });
     }
-    const department = await db.deliveryCompanyAddress.findFirst({
-      where: { id: String(body.departmentId), deliveryCompanyId: auth.companyId },
-      select: { id: true },
+    const account = await db.deliveryCompanyDepartmentAccount.findFirst({
+      where: { id: deptAccountId, deliveryCompanyId: auth.companyId },
+      select: { id: true, email: true },
     });
-    if (!department) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    if (!account) return NextResponse.json({ error: "Department account not found" }, { status: 404 });
 
     const policy = await db.deliveryCompanyDepartmentBudgetPolicy.upsert({
-      where: { departmentId: String(body.departmentId) },
+      where: { departmentAccountId: account.id },
       create: {
         deliveryCompanyId: auth.companyId,
-        departmentId: String(body.departmentId),
+        departmentAccountId: account.id,
         periodType: body.periodType,
         intervalDays: body.intervalDays ?? null,
         maxAutoApproveAmount: Number(body.maxAutoApproveAmount || 0),
@@ -62,7 +71,12 @@ export async function POST(req: NextRequest) {
       "BUDGET_POLICY_UPSERTED",
       "COMPANY",
       auth.departmentAccountId || auth.companyId,
-      { policyId: policy.id, departmentId: policy.departmentId, periodType: policy.periodType, auto: policy.isAutoApproveEnabled },
+      {
+        policyId: policy.id,
+        departmentAccountId: policy.departmentAccountId,
+        periodType: policy.periodType,
+        auto: policy.isAutoApproveEnabled,
+      },
     );
     return NextResponse.json(policy);
   } catch (e: unknown) {

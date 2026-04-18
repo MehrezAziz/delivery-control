@@ -18,7 +18,10 @@ export async function GET() {
         ...(isMainDepartmentActor(auth) ? {} : { departmentId: auth.departmentId || "__none__" }),
       },
       orderBy: { createdAt: "desc" },
-      include: { department: { select: { id: true, label: true, isMainDepartment: true } } },
+      include: {
+        department: { select: { id: true, label: true, isMainDepartment: true } },
+        requestedByAccount: { select: { id: true, email: true } },
+      },
     });
     return NextResponse.json(rows);
   } catch (e: unknown) {
@@ -82,9 +85,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Idempotency request is in progress; please retry" }, { status: 409 });
     }
 
-    const policy = await db.deliveryCompanyDepartmentBudgetPolicy.findUnique({
-      where: { departmentId: department.id },
-    });
+    const policy = auth.departmentAccountId
+      ? await db.deliveryCompanyDepartmentBudgetPolicy.findUnique({
+          where: { departmentAccountId: auth.departmentAccountId },
+        })
+      : null;
 
     const company = await db.deliveryCompany.findUnique({
       where: { id: auth.companyId },
@@ -93,10 +98,30 @@ export async function POST(req: NextRequest) {
     if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
     const availableCompany = Number(company.coinBalance) - Number(company.lockedCoins || 0);
 
-    const canAutoApprove =
+    const isUrgent = body.priority === "URGENT";
+
+    let cooldownOk = true;
+    if (policy && Number(policy.minHoursBetweenReq) > 0 && auth.departmentAccountId) {
+      const lastReq = await db.deliveryCompanyDepartmentBudgetRequest.findFirst({
+        where: {
+          deliveryCompanyId: auth.companyId,
+          requestedByAccountId: auth.departmentAccountId,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (lastReq) {
+        const hours = (Date.now() - new Date(lastReq.createdAt).getTime()) / 36e5;
+        if (hours < Number(policy.minHoursBetweenReq)) cooldownOk = false;
+      }
+    }
+
+    const canUrgentAutoApprove =
+      isUrgent &&
+      !!policy?.isActive &&
       !!policy?.isAutoApproveEnabled &&
       amountCoins <= Number(policy.maxAutoApproveAmount || 0) &&
-      availableCompany >= amountCoins;
+      availableCompany >= amountCoins &&
+      cooldownOk;
 
     const result = await db.$transaction(async (tx: any) => {
       const idemRow = await tx.deliveryCompanyIdempotencyKey.create({
@@ -115,16 +140,17 @@ export async function POST(req: NextRequest) {
         data: {
           deliveryCompanyId: auth.companyId,
           departmentId: requestedDepartmentId,
+          requestedByAccountId: auth.departmentAccountId ?? null,
           amountCoins,
           priority: body.priority === "URGENT" ? "URGENT" : "NORMAL",
-          status: canAutoApprove ? "AUTO_APPROVED" : "PENDING",
-          decisionNote: canAutoApprove ? "Auto-approved by budget policy" : null,
-          decidedAt: canAutoApprove ? new Date() : null,
-          decidedBy: canAutoApprove ? "SYSTEM" : null,
+          status: canUrgentAutoApprove ? "AUTO_APPROVED" : "PENDING",
+          decisionNote: canUrgentAutoApprove ? "Auto-approved: urgent request matched account policy" : null,
+          decidedAt: canUrgentAutoApprove ? new Date() : null,
+          decidedBy: canUrgentAutoApprove ? "SYSTEM" : null,
         },
       });
 
-      if (canAutoApprove) {
+      if (canUrgentAutoApprove) {
         const wallet = await tx.deliveryCompanyDepartmentBudgetWallet.upsert({
           where: { departmentId: department.id },
           create: {
@@ -166,6 +192,7 @@ export async function POST(req: NextRequest) {
       const safeRequest = {
         ...request,
         amountCoins: String(request.amountCoins),
+        requestedByAccountId: request.requestedByAccountId ?? null,
         decisionNote: request.decisionNote ?? null,
         decidedAt: request.decidedAt ? request.decidedAt.toISOString() : null,
         createdAt: request.createdAt ? request.createdAt.toISOString() : null,
@@ -188,18 +215,44 @@ export async function POST(req: NextRequest) {
       auth.departmentAccountId || auth.companyId,
       { departmentId: department.id, amountCoins, status: result.status },
     );
-    await emitDepartmentNotification(
-      auth.companyId,
-      department.id,
-      "BUDGET_REQUEST_CREATED",
-      {
+    if (result.status === "AUTO_APPROVED") {
+      const recipientId = result.requestedByAccountId || department.id;
+      await emitDepartmentNotification(auth.companyId, recipientId, "BUDGET_REQUEST_DECIDED", {
         requestId: result.id,
+        decision: "APPROVE",
         amountCoins,
-        priority: body.priority === "URGENT" ? "URGENT" : "NORMAL",
-        status: result.status,
         groupKey: `budget:${result.id}`,
-      },
-    );
+      });
+      let urgentAccountEmail = "";
+      if (auth.departmentAccountId) {
+        const acc = await db.deliveryCompanyDepartmentAccount.findUnique({
+          where: { id: auth.departmentAccountId },
+          select: { email: true },
+        });
+        urgentAccountEmail = acc?.email?.trim() ?? "";
+      }
+      await emitDepartmentNotification(auth.companyId, auth.companyId, "BUDGET_AUTO_URGENT_INFO_MAIN", {
+        requestId: result.id,
+        accountEmail: urgentAccountEmail,
+        amountCoins,
+        groupKey: `budget:auto:${result.id}`,
+      });
+    } else if (result.status === "PENDING") {
+      let accountEmail = "";
+      if (auth.departmentAccountId) {
+        const acc = await db.deliveryCompanyDepartmentAccount.findUnique({
+          where: { id: auth.departmentAccountId },
+          select: { email: true },
+        });
+        accountEmail = acc?.email?.trim() ?? "";
+      }
+      await emitDepartmentNotification(auth.companyId, auth.companyId, "BUDGET_REQUEST_PENDING_MAIN", {
+        requestId: result.id,
+        accountEmail,
+        amountCoins,
+        groupKey: `budget:${result.id}`,
+      });
+    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (e: unknown) {

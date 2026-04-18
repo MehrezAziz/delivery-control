@@ -9,14 +9,24 @@ export async function POST(req: NextRequest) {
     await ensureCompanyIsActive(auth.companyId);
     ensureMainDepartmentActor(auth);
     const body = await req.json();
-    const departmentId = String(body?.departmentId || "");
+    const departmentAccountId = String(body?.departmentAccountId || body?.departmentId || "");
     const amountCoins = Number(body?.amountCoins || 0);
-    if (!departmentId || !Number.isFinite(amountCoins) || amountCoins <= 0) {
-      return NextResponse.json({ error: "departmentId and positive amountCoins are required" }, { status: 400 });
+    if (!departmentAccountId || !Number.isFinite(amountCoins) || amountCoins <= 0) {
+      return NextResponse.json(
+        { error: "departmentAccountId (or legacy departmentId) and positive amountCoins are required" },
+        { status: 400 },
+      );
     }
     const db: any = prisma;
+    const account = await db.deliveryCompanyDepartmentAccount.findFirst({
+      where: { id: departmentAccountId, deliveryCompanyId: auth.companyId },
+      select: { id: true, email: true, departmentId: true },
+    });
+    if (!account) {
+      return NextResponse.json({ error: "Department account not found" }, { status: 404 });
+    }
     const department = await db.deliveryCompanyAddress.findFirst({
-      where: { id: departmentId, deliveryCompanyId: auth.companyId },
+      where: { id: account.departmentId, deliveryCompanyId: auth.companyId },
       select: { id: true, label: true, isMainDepartment: true },
     });
     if (!department) return NextResponse.json({ error: "Department not found" }, { status: 404 });
@@ -58,6 +68,8 @@ export async function POST(req: NextRequest) {
       });
 
       return {
+        departmentAccountId: account.id,
+        departmentAccountEmail: account.email,
         departmentId: department.id,
         departmentLabel: department.label,
         amountCoins,
@@ -71,7 +83,7 @@ export async function POST(req: NextRequest) {
       "DEPARTMENT_BUDGET_TRANSFERRED",
       "COMPANY",
       auth.departmentAccountId || auth.companyId,
-      { departmentId: department.id, amountCoins },
+      { departmentAccountId: account.id, departmentId: department.id, amountCoins },
     );
     return NextResponse.json(result, { status: 201 });
   } catch (e: unknown) {

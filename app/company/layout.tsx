@@ -61,7 +61,7 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
       { href: "/company/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/company/notifications", label: "Notifications", icon: Bell },
       { href: "/company/orders", label: "Orders", icon: Package },
-      { href: "/company/departments", label: "Departments", icon: Building2 },
+      ...(isMain ? [{ href: "/company/departments", label: "Departments", icon: Building2 }] : []),
       { href: "/company/wallet", label: "Wallet", icon: Wallet },
       { href: "/company/stats", label: "Statistics", icon: ChartColumn },
       ...(isMain ? [{ href: "/company/refunds", label: "Refunds", icon: Wallet }] : []),
