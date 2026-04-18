@@ -486,10 +486,49 @@ function CompanyBudgetsPageContent() {
     return copy;
   }, [requests, requestSort]);
 
+  /** Department budget wallet for each non-main department account (by account id). */
+  const deptWalletByAccountId = useMemo(() => {
+    const m = new Map<string, { available: number; locked: number }>();
+    for (const acc of departmentAccounts) {
+      const deptId = acc.department?.id;
+      if (!deptId || acc.department?.isMainDepartment) continue;
+      const w = deptWallets.find((row) => row.department?.id === deptId);
+      m.set(acc.id, {
+        available: w ? Number(w.availableCoins || 0) : 0,
+        locked: w ? Number(w.lockedCoins || 0) : 0,
+      });
+    }
+    return m;
+  }, [departmentAccounts, deptWallets]);
+
   const pendingRequests = sortedRequests.filter((r) => r.status === "PENDING");
   const settledRequests = sortedRequests.filter((r) => r.status !== "PENDING");
 
   if (loading) return <div>Loading budget controls...</div>;
+
+  const selectedDeptBudgetHint = (accountId: string) => {
+    if (!accountId) {
+      return (
+        <p className="text-xs text-muted-foreground">Select a department account to see its current budget wallet balance.</p>
+      );
+    }
+    const snap = deptWalletByAccountId.get(accountId);
+    const av = snap?.available ?? 0;
+    const lk = snap?.locked ?? 0;
+    return (
+      <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Current department budget · </span>
+        <span className="font-semibold tabular-nums text-foreground">{av.toFixed(2)}</span>
+        <span className="text-muted-foreground"> coins available</span>
+        {lk > 0 ? (
+          <span className="text-muted-foreground">
+            {" "}
+            · {lk.toFixed(2)} locked
+          </span>
+        ) : null}
+      </p>
+    );
+  };
 
   const renderRequestRow = (r: RequestRow, pendingStyle: boolean) => (
     <div
@@ -755,6 +794,7 @@ function CompanyBudgetsPageContent() {
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">POST /api/cron/scheduled-budget-transfers</code> with header{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">Authorization: Bearer $CRON_SECRET</code>.
         </p>
+        {selectedDeptBudgetHint(scheduleAccountId)}
         <div className="grid gap-2 md:grid-cols-4">
           <select
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -897,6 +937,7 @@ function CompanyBudgetsPageContent() {
         <p className="text-xs text-muted-foreground">
           Coins are credited to that account&apos;s department budget wallet (child departments only; main department uses the company wallet).
         </p>
+        {selectedDeptBudgetHint(transferDepartmentAccountId)}
         <div className="grid gap-2 md:grid-cols-3">
           <select
             className="rounded-md border px-3 py-2"
