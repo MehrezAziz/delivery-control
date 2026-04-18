@@ -68,6 +68,31 @@ export async function emitDepartmentNotification(
         ? `Department account ${email} submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`
         : `A department submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`;
     }
+  } else if (type === "BUDGET_REQUEST_UPDATED_MAIN") {
+    mappedType = "SUPPORT_HUMAN_REQUESTED";
+    title = "Budget request updated";
+    const email = String((payload as { accountEmail?: string }).accountEmail || "").trim();
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    const prio = String((payload as { priority?: string }).priority || "").trim();
+    body = email
+      ? `${email} updated a pending budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins${prio ? `, ${prio}` : ""}). Review in Budgets.`
+      : `A pending budget request was updated (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review in Budgets.`;
+  } else if (type === "BUDGET_REQUEST_CANCELLED_MAIN") {
+    mappedType = "SUPPORT_HUMAN_REQUESTED";
+    title = "Budget request cancelled";
+    const email = String((payload as { accountEmail?: string }).accountEmail || "").trim();
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    body = email
+      ? `${email} cancelled a pending budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins).`
+      : `A pending budget request was cancelled (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins).`;
+  } else if (type === "BUDGET_RECALL_FROM_COMPANY_DEPT") {
+    mappedType = "ORDER_PAYMENT_DEDUCTED";
+    title = "Coins recalled from department budget";
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    const label = String((payload as { departmentLabel?: string }).departmentLabel || "").trim();
+    body = label
+      ? `The main company recalled ${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins from your department budget (${label}). Your available department budget decreased.`
+      : `The main company recalled ${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins from your department budget.`;
   } else if (type === "BUDGET_AUTO_URGENT_INFO_MAIN") {
     mappedType = "SUPPORT_HUMAN_REQUESTED";
     title = "Urgent budget auto-approved";
@@ -123,7 +148,9 @@ export async function emitDepartmentNotification(
     ? "RefundRequest"
     : type.includes("SCHEDULED_BUDGET")
       ? "ScheduledBudgetTransfer"
-      : "BudgetRequest";
+      : type === "BUDGET_RECALL_FROM_COMPANY_DEPT"
+        ? "CompanyWallet"
+        : "BudgetRequest";
   const jsonBody = JSON.stringify({
     type: mappedType,
     title,

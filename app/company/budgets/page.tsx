@@ -114,7 +114,15 @@ function CompanyBudgetsPageContent() {
   const [requestSort, setRequestSort] = useState<
     "createdAt-desc" | "createdAt-asc" | "amount-desc" | "amount-asc" | "priority" | "status"
   >("createdAt-desc");
+  const [meDepartmentAccountId, setMeDepartmentAccountId] = useState<string | null>(null);
+  const [requestEditDraft, setRequestEditDraft] = useState<{ id: string; amount: string; priority: string } | null>(
+    null,
+  );
+  const [recallAccountId, setRecallAccountId] = useState("");
+  const [recallAmount, setRecallAmount] = useState("50");
   const isMain = actorRole === "MAIN_ADMIN";
+  const canEditOwnBudgetRequest =
+    !isMain && (actorRole === "DEPT_ADMIN" || actorRole === "DEPT_OPERATOR");
 
   const refreshBudgetRequests = useCallback(async () => {
     try {
@@ -135,6 +143,8 @@ function CompanyBudgetsPageContent() {
         .then((x) => x.json())
         .catch(() => null);
       if (me?.actorRole) setActorRole(String(me.actorRole));
+      if (me?.departmentAccountId) setMeDepartmentAccountId(String(me.departmentAccountId));
+      else setMeDepartmentAccountId(null);
       const mainUser = (me?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
 
       const [dep, polRes, reqs, accRes, schedRes] = await Promise.all([
@@ -156,6 +166,9 @@ function CompanyBudgetsPageContent() {
       );
       if (!transferDepartmentAccountId && transferable.length > 0) {
         setTransferDepartmentAccountId(transferable[0].id);
+      }
+      if (!recallAccountId && transferable.length > 0) {
+        setRecallAccountId(transferable[0].id);
       }
       if (mainUser) {
         if (schedRes.ok) {
@@ -382,6 +395,60 @@ function CompanyBudgetsPageContent() {
     await load();
   };
 
+  const saveBudgetRequestEdit = async (requestId: string) => {
+    if (!requestEditDraft || requestEditDraft.id !== requestId) return;
+    setMessage(null);
+    const res = await fetch(`/api/company/budget-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amountCoins: Number(requestEditDraft.amount || 0),
+        priority: requestEditDraft.priority,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to update request");
+    setRequestEditDraft(null);
+    setMessage("Budget request updated.");
+    void refreshBudgetRequests();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("dc-company-notifications-refresh"));
+    }
+  };
+
+  const cancelOwnPendingRequest = async (requestId: string) => {
+    if (!window.confirm("Cancel this budget request? Main company has not decided yet.")) return;
+    setMessage(null);
+    const res = await fetch(`/api/company/budget-requests/${requestId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to cancel request");
+    setRequestEditDraft(null);
+    setMessage("Budget request cancelled.");
+    void refreshBudgetRequests();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("dc-company-notifications-refresh"));
+    }
+  };
+
+  const recallBudgetCoins = async () => {
+    setMessage(null);
+    const res = await fetch("/api/company/budget-recall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        departmentAccountId: recallAccountId,
+        amountCoins: Number(recallAmount || 0),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to recall coins");
+    setMessage("Coins recalled from department budget to company wallet.");
+    await load();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("dc-company-notifications-refresh"));
+    }
+  };
+
   const sortedRequests = useMemo(() => {
     const copy = [...requests];
     const byDate = (a: RequestRow, b: RequestRow) =>
@@ -483,6 +550,81 @@ function CompanyBudgetsPageContent() {
           </button>
         </div>
       )}
+      {!isMain &&
+        r.status === "PENDING" &&
+        canEditOwnBudgetRequest &&
+        meDepartmentAccountId &&
+        r.requestedByAccount?.id === meDepartmentAccountId && (
+          <div className="mt-3 space-y-2">
+            {requestEditDraft?.id === r.id ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-muted-foreground">Amount (coins)</span>
+                  <input
+                    className="w-28 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={requestEditDraft.amount}
+                    onChange={(e) =>
+                      setRequestEditDraft((d) => (d?.id === r.id ? { ...d, amount: e.target.value } : d))
+                    }
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-muted-foreground">Priority</span>
+                  <select
+                    className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={requestEditDraft.priority}
+                    onChange={(e) =>
+                      setRequestEditDraft((d) => (d?.id === r.id ? { ...d, priority: e.target.value } : d))
+                    }
+                  >
+                    <option value="NORMAL">Normal</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="rounded-md border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs font-medium"
+                  onClick={() => void saveBudgetRequestEdit(r.id)}
+                >
+                  Save changes
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border px-3 py-1.5 text-xs"
+                  onClick={() => setRequestEditDraft(null)}
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium"
+                  onClick={() =>
+                    setRequestEditDraft({
+                      id: r.id,
+                      amount: String(r.amountCoins ?? ""),
+                      priority: r.priority || "NORMAL",
+                    })
+                  }
+                >
+                  Edit amount / priority
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive"
+                  onClick={() => void cancelOwnPendingRequest(r.id)}
+                >
+                  Cancel request
+                </button>
+              </div>
+            )}
+          </div>
+        )}
     </div>
   );
 
@@ -772,6 +914,45 @@ function CompanyBudgetsPageContent() {
           </select>
           <input className="rounded-md border px-3 py-2" type="number" min="1" step="0.1" value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} placeholder="Amount in coins" />
           <button className="rounded-md border px-3 py-2" onClick={transferCoins}>Send coins</button>
+        </div>
+      </section>
+      )}
+
+      {isMain && (
+      <section className="rounded-lg border p-4 space-y-3">
+        <h2 className="text-lg font-semibold">Recall coins from department budget</h2>
+        <p className="text-xs text-muted-foreground">
+          Move coins from a department&apos;s budget wallet back to the company wallet at any time. The department account receives a notification; the company ledger records the return (department budget decreases, company balance increases).
+        </p>
+        <div className="grid gap-2 md:grid-cols-3">
+          <select
+            className="rounded-md border px-3 py-2"
+            value={recallAccountId}
+            onChange={(e) => setRecallAccountId(e.target.value)}
+            aria-label="Department account to recall from"
+          >
+            <option value="">Select department account</option>
+            {departmentAccounts
+              .filter((a) => a.department && !a.department.isMainDepartment)
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.email} — {a.department?.label || "Department"}
+                </option>
+              ))}
+          </select>
+          <input
+            className="rounded-md border px-3 py-2"
+            type="number"
+            min="0.1"
+            step="0.1"
+            value={recallAmount}
+            onChange={(e) => setRecallAmount(e.target.value)}
+            placeholder="Amount in coins"
+            aria-label="Recall amount in coins"
+          />
+          <button type="button" className="rounded-md border px-3 py-2" onClick={() => void recallBudgetCoins()}>
+            Recall to company wallet
+          </button>
         </div>
       </section>
       )}

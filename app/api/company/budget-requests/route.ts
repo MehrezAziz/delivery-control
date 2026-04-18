@@ -7,7 +7,8 @@ import { ensureCompanyIsActive, ensureCompanyRoleAllowed, isMainDepartmentActor,
 import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { createHash } from "crypto";
 import { enforceCompanyRateLimit } from "@/lib/company-rate-limit";
-import { buildUrgentAutoDenialNote, normalizeBudgetRequestPriority } from "@/lib/urgent-budget-auto-approve";
+import { normalizeBudgetRequestPriority } from "@/lib/urgent-budget-auto-approve";
+import { evaluateUrgentBudgetAutoApprove } from "@/lib/evaluate-urgent-budget-auto-approve";
 
 export async function GET(req: NextRequest) {
   try {
@@ -94,64 +95,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Idempotency request is in progress; please retry" }, { status: 409 });
     }
 
-    const policy = auth.departmentAccountId
-      ? await db.deliveryCompanyDepartmentBudgetPolicy.findUnique({
-          where: { departmentAccountId: auth.departmentAccountId },
-        })
-      : null;
-
-    const company = await db.deliveryCompany.findUnique({
-      where: { id: auth.companyId },
-      select: { coinBalance: true, lockedCoins: true },
-    });
-    if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
-    const availableCompany = Number(company.coinBalance) - Number(company.lockedCoins || 0);
-
     const priorityEnum = normalizeBudgetRequestPriority(body.priority);
-    const isUrgent = priorityEnum === "URGENT";
 
-    const minHours = policy ? Number(policy.minHoursBetweenReq || 0) : 0;
-    const maxCap = policy ? Number(policy.maxAutoApproveAmount || 0) : 0;
+    const evalResult = await evaluateUrgentBudgetAutoApprove(db, {
+      companyId: auth.companyId,
+      departmentAccountId: auth.departmentAccountId,
+      amountCoins,
+      priorityEnum,
+    });
 
-    let existingUrgentSum = 0;
-    if (isUrgent && auth.departmentAccountId && minHours > 0) {
-      const windowStart = new Date(Date.now() - minHours * 3600 * 1000);
-      const agg = await db.deliveryCompanyDepartmentBudgetRequest.aggregate({
-        where: {
-          deliveryCompanyId: auth.companyId,
-          requestedByAccountId: auth.departmentAccountId,
-          priority: "URGENT",
-          status: { notIn: ["REJECTED", "CANCELLED"] },
-          createdAt: { gte: windowStart },
-        },
-        _sum: { amountCoins: true },
-      });
-      existingUrgentSum = Number(agg._sum.amountCoins ?? 0);
-    }
-
-    const capOk = !isUrgent || minHours <= 0 ? amountCoins <= maxCap : existingUrgentSum + amountCoins <= maxCap + 1e-9;
-
-    const canUrgentAutoApprove =
-      isUrgent &&
-      !!policy?.isActive &&
-      !!policy?.isAutoApproveEnabled &&
-      !!policy &&
-      capOk &&
-      availableCompany >= amountCoins;
-
-    let urgentDenialNote: string | null = null;
-    if (isUrgent && !canUrgentAutoApprove) {
-      urgentDenialNote = buildUrgentAutoDenialNote({
-        hasPolicy: !!policy,
-        policyActive: !!policy?.isActive,
-        autoEnabled: !!policy?.isAutoApproveEnabled,
-        maxCap,
-        minHours,
-        existingUrgentSum,
-        requestedAmount: amountCoins,
-        availableCompany,
-      });
-    }
+    const { canUrgentAutoApprove, urgentDenialNote, company } = evalResult;
+    if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
 
     const result = await db.$transaction(async (tx: any) => {
       const idemRow = await tx.deliveryCompanyIdempotencyKey.create({
