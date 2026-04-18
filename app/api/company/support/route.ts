@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SupportTicketCategory, SupportTicketPriority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { notifyNewSupportTicketFromControlPanel } from "@/lib/notify-support-ticket";
 
 async function resolveCompanyUserId(companyId: string): Promise<string> {
   const company = await prisma.deliveryCompany.findUnique({
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
       });
       return ticket;
     });
+    notifyNewSupportTicketFromControlPanel(created.id);
     return NextResponse.json(created, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to create support ticket";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
@@ -25,7 +25,7 @@ type RequestRow = {
   department?: Department;
 };
 
-export default function CompanyBudgetsPage() {
+function CompanyBudgetsPageContent() {
   const searchParams = useSearchParams();
   const highlightRequest = searchParams.get("highlightRequest");
 
@@ -277,5 +277,13 @@ export default function CompanyBudgetsPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function CompanyBudgetsPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading budgets…</div>}>
+      <CompanyBudgetsPageContent />
+    </Suspense>
   );
 }

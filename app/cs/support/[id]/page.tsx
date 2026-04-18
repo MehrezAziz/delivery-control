@@ -55,7 +55,29 @@ export default function CSSupportChatPage() {
 
   useEffect(() => { loadTicket(); }, [loadTicket]);
   useEffect(() => { const i = setInterval(loadTicket, 3000); return () => clearInterval(i); }, [loadTicket]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [ticket?.messages]);
+
+  /** Mark company-reply notifications read for this ticket while CS is in the thread (badge / bell). */
+  useEffect(() => {
+    const ticketId = String(id);
+    let cancelled = false;
+    void fetch("/api/notifications/thread/read", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupKey: `support:${ticketId}` }),
+      credentials: "include",
+    }).then(() => {
+      if (!cancelled && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("dc-cs-notifications-refresh"));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, ticket?.messages?.length]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [ticket?.messages]);
 
   async function handleSend() {
     if (!message.trim() || sending) return;

@@ -64,6 +64,9 @@ export default function CompanyNotificationsPage() {
 
     const latest = entry.kind === "group" ? entry.latest : entry.notification;
     const href = getCompanyNotificationHref(latest);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("dc-company-notifications-refresh"));
+    }
     if (href) router.push(href);
   };
 
@@ -78,6 +81,9 @@ export default function CompanyNotificationsPage() {
           onClick={async () => {
             await fetch("/api/company/notifications/read-all", { method: "PATCH" });
             await load();
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new Event("dc-company-notifications-refresh"));
+            }
           }}
         >
           Make all as read

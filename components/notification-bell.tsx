@@ -5,6 +5,10 @@ import { useRouter, usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { connectSocket, disconnectSocket, getSocket } from "@/lib/socket";
+import {
+  buildCsDisplayNotifications,
+  excludeCsSupportTicketWhenViewing,
+} from "@/lib/cs-notification-grouping";
 import { toast } from "sonner";
 
 interface Notification {
@@ -15,6 +19,7 @@ interface Notification {
   priority: string;
   relatedEntityType?: string;
   relatedEntityId?: string;
+  groupKey?: string | null;
   sentAt: string;
   readAt: string | null;
 }
@@ -23,8 +28,6 @@ interface DisplayNotification extends Notification {
   groupCount?: number;
   groupedIds?: string[];
 }
-
-const CS_GROUP_TYPES = new Set(["NEW_SUPPORT_TICKET", "NEW_ORDER_FOR_CUSTOMER_SERVICE"]);
 
 export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -38,6 +41,13 @@ export function NotificationBell() {
   // Determine if we're in admin or CS panel
   const isAdmin = pathname.startsWith("/dashboard");
   const basePath = isAdmin ? "/dashboard" : "/cs";
+
+  const suppressCsSupportTicketId = useMemo(() => {
+    const m = pathname.match(/^\/cs\/support\/([0-9a-f-]{36})/i);
+    return m?.[1] ?? null;
+  }, [pathname]);
+  const suppressCsSupportTicketIdRef = useRef<string | null>(null);
+  suppressCsSupportTicketIdRef.current = suppressCsSupportTicketId;
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -82,6 +92,23 @@ export function NotificationBell() {
 
         const socket = connectSocket(me.token);
         socket.on("notification", (notif: Notification) => {
+          const activeTicket = suppressCsSupportTicketIdRef.current;
+          const isCompanyReply =
+            notif.type === "CUSTOMER_REPLIED_TICKET" &&
+            notif.relatedEntityType === "SupportTicket" &&
+            notif.relatedEntityId &&
+            activeTicket &&
+            notif.relatedEntityId === activeTicket;
+          if (isCompanyReply) {
+            void fetch("/api/notifications/thread/read", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ groupKey: `support:${activeTicket}` }),
+              credentials: "include",
+            }).catch(() => {});
+            void fetchUnreadCount();
+            return;
+          }
           setUnreadCount((c) => c + 1);
           setNotifications((prev) => [notif, ...prev].slice(0, 10));
           toast(notif.title, { description: notif.body });
@@ -111,6 +138,14 @@ export function NotificationBell() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    function onCsRefresh() {
+      void fetchUnreadCount();
+    }
+    window.addEventListener("dc-cs-notifications-refresh", onCsRefresh);
+    return () => window.removeEventListener("dc-cs-notifications-refresh", onCsRefresh);
+  }, [fetchUnreadCount]);
 
   const handleOpen = () => {
     setIsOpen(!isOpen);
@@ -160,7 +195,10 @@ export function NotificationBell() {
       router.push(`${basePath}/support/${n.relatedEntityId}`);
     } else if (n.relatedEntityType === 'Dispute' && n.relatedEntityId) {
       router.push(`${basePath}/disputes`);
-    } else if (n.relatedEntityType === 'Order' && n.relatedEntityId) {
+    } else if (
+      (n.relatedEntityType === "Order" || n.relatedEntityType === "ChatRoom") &&
+      n.relatedEntityId
+    ) {
       router.push(`${basePath}/orders/${n.relatedEntityId}`);
     } else if (n.type === 'NEW_DRIVER_REGISTRATION' || n.type === 'DRIVER_DOCUMENTS_SUBMITTED') {
       router.push(`${basePath}/drivers`);
@@ -189,26 +227,9 @@ export function NotificationBell() {
 
   const displayNotifications = useMemo<DisplayNotification[]>(() => {
     if (isAdmin) return notifications;
-    const grouped: DisplayNotification[] = [];
-    const groupedByType = new Map<string, DisplayNotification>();
-    for (const n of notifications) {
-      const canGroup = !n.readAt && CS_GROUP_TYPES.has(n.type);
-      if (!canGroup) {
-        grouped.push(n);
-        continue;
-      }
-      const existing = groupedByType.get(n.type);
-      if (!existing) {
-        const first: DisplayNotification = { ...n, groupCount: 1, groupedIds: [n.id] };
-        groupedByType.set(n.type, first);
-        grouped.push(first);
-      } else {
-        existing.groupCount = (existing.groupCount || 1) + 1;
-        existing.groupedIds = [...(existing.groupedIds || []), n.id];
-      }
-    }
-    return grouped.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
-  }, [notifications, isAdmin]);
+    const filtered = excludeCsSupportTicketWhenViewing(notifications, suppressCsSupportTicketId);
+    return buildCsDisplayNotifications(filtered);
+  }, [notifications, isAdmin, suppressCsSupportTicketId]);
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -242,7 +263,7 @@ export function NotificationBell() {
             ) : (
               displayNotifications.map((n) => (
                 <div
-                  key={n.id}
+                  key={n.groupedIds?.length ? `g:${n.groupedIds.join(",")}` : n.id}
                   onClick={() => handleNotificationClick(n)}
                   className={`flex gap-3 border-b px-4 py-3 cursor-pointer hover:bg-accent transition-colors ${!n.readAt ? "bg-accent/50" : ""}`}
                 >
@@ -260,14 +281,12 @@ export function NotificationBell() {
                     </p>
                     <span className="text-[10px] text-muted-foreground mt-1">{formatTime(n.sentAt)}</span>
                   </div>
-                  {!n.readAt ? (
-                    n.groupCount && n.groupCount > 1 ? (
-                      <div className="mt-1 min-w-5 h-5 px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {n.groupCount}
-                      </div>
-                    ) : (
-                      <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-                    )
+                  {n.groupCount && n.groupCount > 1 ? (
+                    <div className="mt-1 min-w-5 h-5 px-1 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center">
+                      {n.groupCount}
+                    </div>
+                  ) : !n.readAt ? (
+                    <div className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
                   ) : null}
                 </div>
               ))

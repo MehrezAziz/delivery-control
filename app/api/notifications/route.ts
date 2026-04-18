@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         priority: true,
         relatedEntityType: true,
         relatedEntityId: true,
+        groupKey: true,
         sentAt: true,
         readAt: true,
       },

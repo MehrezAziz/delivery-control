@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { getCompanyNotificationUserIds } from "@/lib/company-notification-user-ids";
 
 export async function GET(req: NextRequest) {
   try {
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || "20")));
     const page = Math.max(1, Number(url.searchParams.get("page") || "1"));
     const skip = (page - 1) * limit;
-    const userIds = [auth.companyId, auth.departmentId, auth.departmentAccountId].filter(Boolean) as string[];
+    const userIds = await getCompanyNotificationUserIds(auth);
     const rows = await prisma.notification.findMany({
       where: { userType: "USER", userId: { in: userIds } },
       orderBy: { sentAt: "desc" },

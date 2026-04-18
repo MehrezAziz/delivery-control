@@ -8,6 +8,8 @@ export function getCompanyNotificationHref(n: CompanyNotificationRow): string | 
   const relT = n.relatedEntityType || "";
   const relId = n.relatedEntityId || "";
 
+  const orderHrefWithChat = (orderId: string) => `/company/orders/${orderId}?chat=1`;
+
   if (relT === "BudgetRequest" && relId) {
     return `/company/budgets?highlightRequest=${encodeURIComponent(relId)}`;
   }
@@ -15,13 +17,18 @@ export function getCompanyNotificationHref(n: CompanyNotificationRow): string | 
     return `/company/refunds?highlightRefund=${encodeURIComponent(relId)}`;
   }
   if (relT === "SupportTicket" && relId) {
-    return `/company/support?ticket=${encodeURIComponent(relId)}`;
+    const withChat = type === "SUPPORT_TICKET_REPLY" ? "&chat=1" : "";
+    return `/company/support?ticket=${encodeURIComponent(relId)}${withChat}`;
+  }
+
+  if (relT === "ChatRoom" && relId) {
+    return orderHrefWithChat(relId);
   }
 
   if (relT === "Order" && relId) {
-    return `/company/orders/${relId}`;
-  }
-  if (relT === "ChatRoom" && relId) {
+    if (type === "NEW_MESSAGE_FROM_DRIVER" || type === "NEW_MESSAGE_FROM_CUSTOMER") {
+      return orderHrefWithChat(relId);
+    }
     return `/company/orders/${relId}`;
   }
 
@@ -30,7 +37,7 @@ export function getCompanyNotificationHref(n: CompanyNotificationRow): string | 
       relId && (relT === "Order" || relT === "ChatRoom")
         ? relId
         : extractOrderIdFromChatGroupKey(n.groupKey);
-    if (orderId) return `/company/orders/${orderId}`;
+    if (orderId) return orderHrefWithChat(orderId);
   }
 
   if (
@@ -43,6 +50,9 @@ export function getCompanyNotificationHref(n: CompanyNotificationRow): string | 
     }
     if (relT === "RefundRequest") {
       return relId ? `/company/refunds?highlightRefund=${encodeURIComponent(relId)}` : "/company/refunds";
+    }
+    if (relT === "SupportTicket" && relId) {
+      return `/company/support?ticket=${encodeURIComponent(relId)}&chat=1`;
     }
     return "/company/support";
   }

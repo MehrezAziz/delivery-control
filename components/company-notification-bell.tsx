@@ -2,21 +2,53 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { connectSocket, disconnectSocket, getSocket } from "@/lib/socket";
-import { buildCompanyNotificationInbox } from "@/lib/company-notification-grouping";
+import {
+  buildCompanyNotificationInbox,
+  excludeChatNotificationsForOrder,
+  excludeSupportNotificationsForTicket,
+} from "@/lib/company-notification-grouping";
 import { getCompanyNotificationHref } from "@/lib/company-notification-routes";
 import type { CompanyInboxEntry, CompanyNotificationRow } from "@/lib/company-notification-types";
 
 export function CompanyNotificationBell() {
+  const pathname = usePathname() || "";
+  /** When viewing an order detail URL, suppress chat notifications for that order in the bell. */
+  const suppressChatForOrderId = useMemo(() => {
+    const m = pathname.match(/^\/company\/orders\/([0-9a-f-]{36})/i);
+    return m?.[1] ?? null;
+  }, [pathname]);
+
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState(0);
   const [rows, setRows] = useState<CompanyNotificationRow[]>([]);
   const router = useRouter();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const suppressChatForOrderIdRef = useRef<string | null>(null);
+  suppressChatForOrderIdRef.current = suppressChatForOrderId;
 
-  const inbox = useMemo(() => buildCompanyNotificationInbox(rows), [rows]);
+  /** Synced when `/company/support` sets `dc_company_support_ticket_id` (open thread). */
+  const [activeSupportTicketId, setActiveSupportTicketId] = useState<string | null>(null);
+  useEffect(() => {
+    function syncSupportTicketFromStorage() {
+      if (typeof sessionStorage === "undefined") return;
+      setActiveSupportTicketId(sessionStorage.getItem("dc_company_support_ticket_id"));
+    }
+    syncSupportTicketFromStorage();
+    window.addEventListener("dc-company-support-ticket", syncSupportTicketFromStorage);
+    return () => window.removeEventListener("dc-company-support-ticket", syncSupportTicketFromStorage);
+  }, []);
 
+  const rowsForBell = useMemo(() => {
+    let r = excludeChatNotificationsForOrder(rows, suppressChatForOrderId);
+    r = excludeSupportNotificationsForTicket(r, activeSupportTicketId);
+    return r;
+  }, [rows, suppressChatForOrderId, activeSupportTicketId]);
+
+  const inbox = useMemo(() => buildCompanyNotificationInbox(rowsForBell), [rowsForBell]);
+
+  /** Always uses full DB unread count so badge hits 0 after read / mark-all / thread read. */
   const loadCount = useCallback(async () => {
     const res = await fetch("/api/company/notifications/unread-count", { cache: "no-store" });
     const data = await res.json();
@@ -36,6 +68,15 @@ export function CompanyNotificationBell() {
   }, [loadCount]);
 
   useEffect(() => {
+    function onUnreadRefresh() {
+      void loadCount();
+      void loadRows();
+    }
+    window.addEventListener("dc-company-notifications-refresh", onUnreadRefresh);
+    return () => window.removeEventListener("dc-company-notifications-refresh", onUnreadRefresh);
+  }, [loadCount, loadRows]);
+
+  useEffect(() => {
     let cancelled = false;
     async function initSocket() {
       try {
@@ -45,23 +86,54 @@ export function CompanyNotificationBell() {
         if (!me?.token || cancelled) return;
         const socket = connectSocket(String(me.token));
         socket.on("notification", (n: CompanyNotificationRow) => {
-          const activeChat =
+          const fromStorage =
             typeof sessionStorage !== "undefined" ? sessionStorage.getItem("dc_company_chat_order_id") : null;
+          /** Prefer URL (always set for `/company/orders/[id]`) so we suppress before child page effects run. */
+          const activeOrderPage = fromStorage || suppressChatForOrderIdRef.current;
           const isMsg =
             n?.type === "NEW_MESSAGE_FROM_DRIVER" ||
             n?.type === "NEW_MESSAGE_FROM_CUSTOMER" ||
             (n?.title || "").toLowerCase().includes("message");
-          if (
-            isMsg &&
-            activeChat &&
-            n?.relatedEntityType === "Order" &&
-            n?.relatedEntityId === activeChat
-          ) {
-            if (n?.id) {
-              void fetch(`/api/company/notifications/${n.id}/read`, { method: "PATCH" });
-            }
+          const orderIdForChat =
+            (n?.relatedEntityType === "Order" || n?.relatedEntityType === "ChatRoom") && n?.relatedEntityId
+              ? n.relatedEntityId
+              : null;
+          /** On this order's page: mark chat thread read immediately (no unread badge / list noise). */
+          if (isMsg && activeOrderPage && orderIdForChat && orderIdForChat === activeOrderPage) {
+            void fetch("/api/company/notifications/thread/read", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ groupKey: `chat:${activeOrderPage}` }),
+            }).then(() => {
+              void loadCount();
+              window.dispatchEvent(new Event("dc-company-notifications-refresh"));
+            });
             return;
           }
+
+          const activeSupport =
+            typeof sessionStorage !== "undefined"
+              ? sessionStorage.getItem("dc_company_support_ticket_id")
+              : null;
+          const ticketIdForSupport =
+            n?.relatedEntityType === "SupportTicket" && n?.relatedEntityId ? n.relatedEntityId : null;
+          if (
+            n?.type === "SUPPORT_TICKET_REPLY" &&
+            activeSupport &&
+            ticketIdForSupport &&
+            ticketIdForSupport === activeSupport
+          ) {
+            void fetch("/api/company/notifications/thread/read", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ groupKey: `support:${activeSupport}` }),
+            }).then(() => {
+              void loadCount();
+              window.dispatchEvent(new Event("dc-company-notifications-refresh"));
+            });
+            return;
+          }
+
           void loadCount();
         });
       } catch {
@@ -104,13 +176,10 @@ export function CompanyNotificationBell() {
 
   const onEntryClick = async (entry: CompanyInboxEntry) => {
     const readAt = new Date().toISOString();
-    let markUnreadDelta = 0;
 
     if (entry.kind === "group") {
       const ids = entry.notifications.map((n) => n.id);
-      const toMark = entry.notifications.filter((n) => !n.readAt);
-      markUnreadDelta = toMark.length;
-      if (toMark.length > 0) {
+      if (entry.unreadCount > 0) {
         await fetch("/api/company/notifications/thread/read", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -121,15 +190,12 @@ export function CompanyNotificationBell() {
     } else {
       const n = entry.notification;
       if (!n.readAt) {
-        markUnreadDelta = 1;
         await fetch(`/api/company/notifications/${n.id}/read`, { method: "PATCH" });
         applyReadToIds([n.id], readAt);
       }
     }
 
-    if (markUnreadDelta > 0) {
-      setCount((c) => Math.max(0, c - markUnreadDelta));
-    }
+    await loadCount();
 
     const latest = entry.kind === "group" ? entry.latest : entry.notification;
     const href = getCompanyNotificationHref(latest);
@@ -157,7 +223,7 @@ export function CompanyNotificationBell() {
               onClick={async () => {
                 await fetch("/api/company/notifications/read-all", { method: "PATCH" });
                 setRows((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
-                setCount(0);
+                await loadCount();
               }}
             >
               Make all as read

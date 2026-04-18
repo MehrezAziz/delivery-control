@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { connectSocket, getSocket } from "@/lib/socket";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Ticket = {
   id: string;
@@ -18,16 +17,54 @@ type TicketMessage = {
   timestamp: string;
 };
 
-export default function CompanySupportPage() {
+const SUPPORT_TICKET_EVENT = "dc-company-support-ticket";
+
+function syncSupportSessionStorage(ticketId: string | null) {
+  if (typeof sessionStorage === "undefined") return;
+  if (ticketId) sessionStorage.setItem("dc_company_support_ticket_id", ticketId);
+  else sessionStorage.removeItem("dc_company_support_ticket_id");
+  window.dispatchEvent(new Event(SUPPORT_TICKET_EVENT));
+}
+
+function CompanySupportPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const ticketFromUrl = searchParams.get("ticket");
+  const chatFocus = searchParams.get("chat") === "1";
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [description, setDescription] = useState("");
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const handledChatQueryRef = useRef(false);
+
+  const chatSectionRef = useRef<HTMLElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatComposerRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
+
+  const scrollChatIntoView = useCallback((opts?: { focusInput?: boolean }) => {
+    const innerBehavior: ScrollBehavior = opts?.focusInput ? "auto" : "smooth";
+    requestAnimationFrame(() => {
+      const el = chatScrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: innerBehavior });
+      requestAnimationFrame(() => {
+        chatComposerRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "end",
+          inline: "nearest",
+        });
+        if (opts?.focusInput) {
+          window.setTimeout(() => {
+            chatInputRef.current?.focus({ preventScroll: true });
+          }, 200);
+        }
+      });
+    });
+  }, []);
 
   const load = async () => {
     const res = await fetch("/api/company/support", { cache: "no-store" });
@@ -36,9 +73,7 @@ export default function CompanySupportPage() {
   };
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load();
-    }, 0);
+    const t = setTimeout(() => void load(), 0);
     return () => clearTimeout(t);
   }, []);
 
@@ -49,43 +84,90 @@ export default function CompanySupportPage() {
     }
   }, [ticketFromUrl, tickets]);
 
-  const loadMessages = async (ticketId: string) => {
-    const res = await fetch(`/api/company/support/${ticketId}/messages`, { cache: "no-store" });
-    const data = await res.json();
-    if (res.ok) setMessages(Array.isArray(data) ? data : []);
-  };
+  useEffect(() => {
+    syncSupportSessionStorage(activeTicketId);
+    return () => {
+      syncSupportSessionStorage(null);
+    };
+  }, [activeTicketId]);
+
+  const loadMessages = useCallback(async (ticketId: string) => {
+    setMessagesLoaded(false);
+    try {
+      const res = await fetch(`/api/company/support/${ticketId}/messages`, { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok) {
+        setMessages(Array.isArray(data) ? data : []);
+      }
+    } finally {
+      setMessagesLoaded(true);
+    }
+  }, []);
+
+  const markSupportThreadRead = useCallback(() => {
+    if (!activeTicketId) return;
+    void fetch("/api/company/notifications/thread/read", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupKey: `support:${activeTicketId}` }),
+    })
+      .then(() => {
+        window.dispatchEvent(new Event("dc-company-notifications-refresh"));
+      })
+      .catch(() => {});
+  }, [activeTicketId]);
 
   useEffect(() => {
     if (!activeTicketId) return;
-    const initialFetch = setTimeout(() => {
-      void loadMessages(activeTicketId);
-    }, 0);
-    const onNotif = (n: { relatedEntityType?: string; relatedEntityId?: string; type?: string }) => {
-      const isSupportNotif =
-        n?.relatedEntityType === "SupportTicket" && n?.relatedEntityId === activeTicketId;
-      if (isSupportNotif) void loadMessages(activeTicketId);
-    };
-    let cancelled = false;
-    async function initSocket() {
-      try {
-        const meRes = await fetch("/api/company-auth/me", { cache: "no-store" });
-        if (!meRes.ok) return;
-        const me = await meRes.json().catch(() => null);
-        if (!me?.token || cancelled) return;
-        const socket = connectSocket(String(me.token));
-        socket.on("notification", onNotif);
-      } catch {
-        // ignore transient socket init errors
-      }
-    }
-    void initSocket();
-    return () => {
-      cancelled = true;
-      clearTimeout(initialFetch);
-      const socket = getSocket();
-      socket?.off("notification", onNotif);
-    };
+    void markSupportThreadRead();
+  }, [activeTicketId, messages.length, markSupportThreadRead]);
+
+  /** Deep link from notification (`chat=1`): show last messages + composer + focused input; strip query. */
+  useEffect(() => {
+    if (!chatFocus || !activeTicketId || !messagesLoaded || handledChatQueryRef.current) return;
+    handledChatQueryRef.current = true;
+    router.replace(`/company/support?ticket=${encodeURIComponent(activeTicketId)}`, { scroll: false });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollChatIntoView({ focusInput: true }));
+    });
+  }, [chatFocus, activeTicketId, messagesLoaded, router, scrollChatIntoView]);
+
+  useEffect(() => {
+    handledChatQueryRef.current = false;
   }, [activeTicketId]);
+
+  useEffect(() => {
+    if (!activeTicketId || !messagesLoaded) return;
+    requestAnimationFrame(() => {
+      const el = chatScrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      chatComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "end", inline: "nearest" });
+    });
+  }, [messages, activeTicketId, messagesLoaded]);
+
+  useEffect(() => {
+    if (!activeTicketId) return;
+    void loadMessages(activeTicketId);
+    const poll = setInterval(() => void loadMessages(activeTicketId), 2000);
+    return () => clearInterval(poll);
+  }, [activeTicketId, loadMessages]);
+
+  const sendChat = async () => {
+    const content = chatInput.trim();
+    if (!content || !activeTicketId) return;
+    const res = await fetch(`/api/company/support/${activeTicketId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to send message");
+    setChatInput("");
+    await loadMessages(activeTicketId);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollChatIntoView({ focusInput: true }));
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -121,7 +203,11 @@ export default function CompanySupportPage() {
         <h2 className="mb-3 text-lg font-semibold">My Support Tickets</h2>
         <div className="space-y-2">
           {tickets.map((t) => (
-            <button key={t.id} className="w-full rounded-md border p-3 text-left text-sm" onClick={() => setActiveTicketId(t.id)}>
+            <button
+              key={t.id}
+              className="w-full rounded-md border p-3 text-left text-sm"
+              onClick={() => setActiveTicketId(t.id)}
+            >
               <div className="flex items-center justify-between">
                 <p className="font-medium">{t.id}</p>
                 <p>{t.status}</p>
@@ -134,46 +220,55 @@ export default function CompanySupportPage() {
       </section>
 
       {activeTicketId && (
-        <section className="rounded-xl border p-4">
+        <section ref={chatSectionRef} className="rounded-xl border p-4">
           <h2 className="mb-3 text-lg font-semibold">Support Chat Room</h2>
-          <div className="max-h-80 space-y-2 overflow-y-auto rounded-md border p-3">
+          <div
+            ref={chatScrollRef}
+            className="max-h-80 space-y-2 overflow-y-auto rounded-md border p-3 bg-muted/20"
+          >
             {messages.map((m) => (
               <div key={m.id} className={`text-sm ${m.senderType === "USER" ? "text-right" : "text-left"}`}>
-                <span className={`inline-block rounded-md px-2 py-1 ${m.senderType === "USER" ? "bg-primary/10" : "bg-muted"}`}>
+                <span
+                  className={`inline-block max-w-[min(100%,28rem)] rounded-md px-2 py-1 ${
+                    m.senderType === "USER" ? "bg-primary text-primary-foreground" : "bg-card border"
+                  }`}
+                >
                   {m.content}
                 </span>
               </div>
             ))}
-            {messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
+            {messages.length === 0 && messagesLoaded && (
+              <p className="text-sm text-muted-foreground">No messages yet.</p>
+            )}
           </div>
-          <div className="mt-3 flex gap-2">
+          <div ref={chatComposerRef} className="mt-3 flex scroll-mt-4 gap-2">
             <input
+              ref={chatInputRef}
               className="w-full rounded-md border px-3 py-2"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="Type a message..."
-            />
-            <button
-              className="rounded-md border px-3 py-2"
-              onClick={async () => {
-                const content = chatInput.trim();
-                if (!content) return;
-                const res = await fetch(`/api/company/support/${activeTicketId}/messages`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ content }),
-                });
-                const data = await res.json();
-                if (!res.ok) return setMessage(data?.error || "Failed to send message");
-                setChatInput("");
-                await loadMessages(activeTicketId);
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void sendChat();
+                }
               }}
-            >
+            />
+            <button type="button" className="rounded-md border px-3 py-2" onClick={() => void sendChat()}>
               Send
             </button>
           </div>
         </section>
       )}
     </div>
+  );
+}
+
+export default function CompanySupportPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading support…</div>}>
+      <CompanySupportPageContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { notifySupportCustomerRepliedFromControlPanel } from "@/lib/notify-support-ticket";
 
 async function resolveCompanyUserId(companyId: string): Promise<string> {
   const company = await prisma.deliveryCompany.findUnique({
@@ -61,6 +62,7 @@ export async function POST(
         content,
       },
     });
+    notifySupportCustomerRepliedFromControlPanel(id);
     return NextResponse.json(message, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to send message";

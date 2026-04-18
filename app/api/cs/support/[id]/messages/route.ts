@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, hasCSRole } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
+import { notifySupportTicketReplyFromControlPanel } from "@/lib/notify-support-ticket";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       newValue: content.length > 100 ? content.slice(0, 100) + "..." : content,
     });
   } catch (e) { console.error("Log error:", e); }
+
+  notifySupportTicketReplyFromControlPanel(id);
 
   return NextResponse.json(message);
 }

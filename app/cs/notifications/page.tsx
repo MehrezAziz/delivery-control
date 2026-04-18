@@ -2,25 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  buildCsDisplayNotifications,
+  type CsBellNotification,
+  type CsDisplayNotification,
+} from "@/lib/cs-notification-grouping";
 
-interface Notification {
-  id: string;
-  title: string;
-  body: string;
-  type: string;
-  priority: string;
-  relatedEntityType?: string;
-  relatedEntityId?: string;
-  sentAt: string;
-  readAt: string | null;
-}
-
-interface DisplayNotification extends Notification {
-  groupCount?: number;
-  groupedIds?: string[];
-}
-
-const CS_GROUP_TYPES = new Set(["NEW_SUPPORT_TICKET", "NEW_ORDER_FOR_CUSTOMER_SERVICE"]);
+type Notification = CsBellNotification;
+type DisplayNotification = CsDisplayNotification;
 
 export default function CsNotificationsPage() {
   const router = useRouter();
@@ -49,27 +38,10 @@ export default function CsNotificationsPage() {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  const displayNotifications = useMemo<DisplayNotification[]>(() => {
-    const grouped: DisplayNotification[] = [];
-    const groupedByType = new Map<string, DisplayNotification>();
-    for (const n of notifications) {
-      const canGroup = !n.readAt && CS_GROUP_TYPES.has(n.type);
-      if (!canGroup) {
-        grouped.push(n);
-        continue;
-      }
-      const existing = groupedByType.get(n.type);
-      if (!existing) {
-        const first: DisplayNotification = { ...n, groupCount: 1, groupedIds: [n.id] };
-        groupedByType.set(n.type, first);
-        grouped.push(first);
-      } else {
-        existing.groupCount = (existing.groupCount || 1) + 1;
-        existing.groupedIds = [...(existing.groupedIds || []), n.id];
-      }
-    }
-    return grouped.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
-  }, [notifications]);
+  const displayNotifications = useMemo(
+    () => buildCsDisplayNotifications(notifications),
+    [notifications],
+  );
 
   const markOneAsRead = useCallback(async (id: string) => {
     try {
@@ -92,9 +64,16 @@ export default function CsNotificationsPage() {
     if (n.groupCount && n.groupCount > 1) {
       if (n.type === "NEW_SUPPORT_TICKET") return "/cs/support";
       if (n.type === "NEW_ORDER_FOR_CUSTOMER_SERVICE") return "/cs/orders";
+      if (n.type === "NEW_MESSAGE_FROM_DRIVER" || n.type === "NEW_MESSAGE_FROM_CUSTOMER") {
+        if (n.relatedEntityId) return `/cs/orders/${n.relatedEntityId}`;
+      }
+      if (n.type === "SUPPORT_TICKET_REPLY" || n.type === "CUSTOMER_REPLIED_TICKET") {
+        if (n.relatedEntityId) return `/cs/support/${n.relatedEntityId}`;
+      }
     }
     if (n.relatedEntityType === "SupportTicket" && n.relatedEntityId) return `/cs/support/${n.relatedEntityId}`;
     if (n.relatedEntityType === "Order" && n.relatedEntityId) return `/cs/orders/${n.relatedEntityId}`;
+    if (n.relatedEntityType === "ChatRoom" && n.relatedEntityId) return `/cs/orders/${n.relatedEntityId}`;
     return "/cs";
   };
 
@@ -138,7 +117,7 @@ export default function CsNotificationsPage() {
           <div>
             {displayNotifications.map((n) => (
               <button
-                key={n.id}
+                key={n.groupedIds?.length ? `g:${n.groupedIds.join(",")}` : n.id}
                 onClick={() => handleClick(n)}
                 className={`w-full border-b px-4 py-3 text-left hover:bg-accent ${!n.readAt ? "bg-accent/50" : ""}`}
               >
@@ -152,14 +131,12 @@ export default function CsNotificationsPage() {
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">{formatTime(n.sentAt)}</p>
                   </div>
-                  {!n.readAt ? (
-                    n.groupCount && n.groupCount > 1 ? (
-                      <span className="mt-1 min-w-5 rounded-full bg-blue-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
-                        {n.groupCount}
-                      </span>
-                    ) : (
-                      <span className="mt-2 h-2 w-2 rounded-full bg-blue-500" />
-                    )
+                  {n.groupCount && n.groupCount > 1 ? (
+                    <span className="mt-1 min-w-5 rounded-full bg-primary/15 px-1.5 py-0.5 text-center text-[10px] font-bold text-primary">
+                      {n.groupCount}
+                    </span>
+                  ) : !n.readAt ? (
+                    <span className="mt-2 h-2 w-2 rounded-full bg-blue-500" />
                   ) : null}
                 </div>
               </button>

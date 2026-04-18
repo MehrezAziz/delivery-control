@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
@@ -14,7 +14,7 @@ type RefundRequest = {
   createdAt: string;
 };
 
-export default function CompanyRefundsPage() {
+function CompanyRefundsPageContent() {
   const searchParams = useSearchParams();
   const highlightRefund = searchParams.get("highlightRefund");
 
@@ -199,5 +199,13 @@ export default function CompanyRefundsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function CompanyRefundsPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading refunds…</div>}>
+      <CompanyRefundsPageContent />
+    </Suspense>
   );
 }

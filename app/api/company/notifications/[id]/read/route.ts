@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { getCompanyNotificationUserIds } from "@/lib/company-notification-user-ids";
 
 export async function PATCH(
   _req: Request,
@@ -9,7 +10,7 @@ export async function PATCH(
   try {
     const auth = await requireCompanyAuth();
     const { id } = await params;
-    const userIds = [auth.companyId, auth.departmentId, auth.departmentAccountId].filter(Boolean) as string[];
+    const userIds = await getCompanyNotificationUserIds(auth);
     const updated = await prisma.notification.updateMany({
       where: { id, userType: "USER", userId: { in: userIds }, readAt: null },
       data: { readAt: new Date() },

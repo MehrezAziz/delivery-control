@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
+import { getCompanyNotificationUserIds } from "@/lib/company-notification-user-ids";
 
 function buildThreadOrBranches(groupKeyRaw: string) {
   const key = (groupKeyRaw || "").trim();
@@ -34,7 +35,7 @@ function buildThreadOrBranches(groupKeyRaw: string) {
 export async function PATCH(req: NextRequest) {
   try {
     const auth = await requireCompanyAuth();
-    const userIds = [auth.companyId, auth.departmentId, auth.departmentAccountId].filter(Boolean) as string[];
+    const userIds = await getCompanyNotificationUserIds(auth);
     const body = await req.json().catch(() => ({}));
     const groupKeyRaw = String(body?.groupKey ?? "");
     const parsed = buildThreadOrBranches(groupKeyRaw);
