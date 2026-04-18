@@ -134,7 +134,7 @@ export function CompanyNotificationBell() {
             return;
           }
 
-          void loadCount();
+          window.dispatchEvent(new Event("dc-company-notifications-refresh"));
         });
       } catch {
         /* ignore */

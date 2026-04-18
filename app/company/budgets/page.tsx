@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
@@ -63,6 +63,23 @@ type DeptWalletRow = {
   department?: { id: string; label: string; isMainDepartment?: boolean };
 };
 
+function budgetRequestStatusBadgeClass(status: string): string {
+  switch (status) {
+    case "PENDING":
+      return "bg-amber-100 text-amber-950 ring-1 ring-amber-300/60 dark:bg-amber-950/50 dark:text-amber-50 dark:ring-amber-600/50";
+    case "AUTO_APPROVED":
+      return "bg-sky-100 text-sky-950 ring-1 ring-sky-300/60 dark:bg-sky-950/45 dark:text-sky-50 dark:ring-sky-600/40";
+    case "APPROVED":
+      return "bg-emerald-100 text-emerald-950 ring-1 ring-emerald-300/60 dark:bg-emerald-950/45 dark:text-emerald-50 dark:ring-emerald-600/40";
+    case "REJECTED":
+      return "bg-red-100 text-red-950 ring-1 ring-red-300/60 dark:bg-red-950/40 dark:text-red-50 dark:ring-red-600/40";
+    case "CANCELLED":
+      return "bg-slate-200 text-slate-800 ring-1 ring-slate-300/80 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-600/50";
+    default:
+      return "bg-muted text-foreground";
+  }
+}
+
 function CompanyBudgetsPageContent() {
   const searchParams = useSearchParams();
   const highlightRequest = searchParams.get("highlightRequest");
@@ -99,6 +116,17 @@ function CompanyBudgetsPageContent() {
   >("createdAt-desc");
   const isMain = actorRole === "MAIN_ADMIN";
 
+  const refreshBudgetRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/company/budget-requests", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setRequests(data);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const load = async () => {
     setLoading(true);
     setMessage(null);
@@ -112,7 +140,7 @@ function CompanyBudgetsPageContent() {
       const [dep, polRes, reqs, accRes, schedRes] = await Promise.all([
         fetch("/api/company/departments").then((x) => x.json()),
         fetch("/api/company/budget-policies"),
-        fetch("/api/company/budget-requests").then((x) => x.json()),
+        fetch("/api/company/budget-requests", { cache: "no-store" }).then((x) => x.json()),
         fetch("/api/company/department-accounts"),
         mainUser ? fetch("/api/company/budget-schedules") : Promise.resolve({ ok: false } as Response),
       ]);
@@ -165,6 +193,22 @@ function CompanyBudgetsPageContent() {
     void load();
   }, []);
 
+  /** Near–realtime: poll while tab visible + refresh when company notifications update (e.g. websocket). */
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void refreshBudgetRequests();
+    }, 6000);
+    function onCompanyNotifRefresh() {
+      void refreshBudgetRequests();
+    }
+    window.addEventListener("dc-company-notifications-refresh", onCompanyNotifRefresh);
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener("dc-company-notifications-refresh", onCompanyNotifRefresh);
+    };
+  }, [refreshBudgetRequests]);
+
   useEffect(() => {
     if (!isMain || !policyAccountId) return;
     const p = policies.find((x) => x.departmentAccountId === policyAccountId);
@@ -181,14 +225,25 @@ function CompanyBudgetsPageContent() {
 
   useEffect(() => {
     if (!highlightRequest) return;
-    const raf = requestAnimationFrame(() => {
+    let cancelled = false;
+    const tryScroll = () => {
+      if (cancelled) return;
       const el = document.getElementById(`budget-req-${highlightRequest}`);
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("ring-2", "ring-primary");
-      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2500);
-    });
-    return () => cancelAnimationFrame(raf);
+      window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 2800);
+    };
+    requestAnimationFrame(tryScroll);
+    const t1 = window.setTimeout(tryScroll, 200);
+    const t2 = window.setTimeout(tryScroll, 700);
+    const t3 = window.setTimeout(tryScroll, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, [highlightRequest, requests]);
 
   const deletePolicy = async (policyId: string) => {
@@ -225,7 +280,8 @@ function CompanyBudgetsPageContent() {
       amountCoins: Number(requestAmount || 0),
       priority,
     };
-    const idemKey = buildIdempotencyKey("company-budget-request-create", payload);
+    // Fresh key each submit — deterministic keys caused duplicate payloads (e.g. default 50 + NORMAL) to replay cached responses without inserting rows.
+    const idemKey = `company-budget-request-create_${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}_${Math.random()}`}`;
     const res = await fetch("/api/company/budget-requests", {
       method: "POST",
       headers: {
@@ -245,7 +301,7 @@ function CompanyBudgetsPageContent() {
           : "Budget request submitted and pending review."
         : `Budget request processed (${String(data.status)}).`,
     );
-    await load();
+    await refreshBudgetRequests();
   };
 
   const transferCoins = async () => {
@@ -403,13 +459,10 @@ function CompanyBudgetsPageContent() {
           )}
         </div>
         <span
-          className={
-            r.status === "PENDING"
-              ? "shrink-0 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950/80 dark:text-amber-100"
-              : "shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-medium"
-          }
+          className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${budgetRequestStatusBadgeClass(r.status)}`}
+          title={r.status.replace(/_/g, " ")}
         >
-          {r.status}
+          {r.status.replace(/_/g, " ")}
         </span>
       </div>
       {isMain && r.status === "PENDING" && (
