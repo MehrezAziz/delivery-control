@@ -1,23 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+
+const BUDGET_REQUEST_SORT_FIELDS = ["createdAt", "amountCoins", "priority", "status"] as const;
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
 import { ensureCompanyIsActive, ensureCompanyRoleAllowed, isMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
 import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { createHash } from "crypto";
 import { enforceCompanyRateLimit } from "@/lib/company-rate-limit";
+import { buildUrgentAutoDenialNote, normalizeBudgetRequestPriority } from "@/lib/urgent-budget-auto-approve";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const auth = await requireCompanyAuth();
     await ensureCompanyIsActive(auth.companyId);
     ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR", "DEPT_VIEWER"]);
     const db: any = prisma;
+    const { searchParams } = new URL(req.url);
+    const sortRaw = searchParams.get("sort") || "createdAt";
+    const order = searchParams.get("order") === "asc" ? "asc" : "desc";
+    const sortField = BUDGET_REQUEST_SORT_FIELDS.includes(sortRaw as (typeof BUDGET_REQUEST_SORT_FIELDS)[number])
+      ? sortRaw
+      : "createdAt";
     const rows = await db.deliveryCompanyDepartmentBudgetRequest.findMany({
       where: {
         deliveryCompanyId: auth.companyId,
         ...(isMainDepartmentActor(auth) ? {} : { departmentId: auth.departmentId || "__none__" }),
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { [sortField]: order },
       include: {
         department: { select: { id: true, label: true, isMainDepartment: true } },
         requestedByAccount: { select: { id: true, email: true } },
@@ -98,36 +107,51 @@ export async function POST(req: NextRequest) {
     if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
     const availableCompany = Number(company.coinBalance) - Number(company.lockedCoins || 0);
 
-    const isUrgent = body.priority === "URGENT";
+    const priorityEnum = normalizeBudgetRequestPriority(body.priority);
+    const isUrgent = priorityEnum === "URGENT";
 
-    let cooldownOk = true;
-    if (
-      isUrgent &&
-      policy &&
-      Number(policy.minHoursBetweenReq) > 0 &&
-      auth.departmentAccountId
-    ) {
-      const lastUrgent = await db.deliveryCompanyDepartmentBudgetRequest.findFirst({
+    const minHours = policy ? Number(policy.minHoursBetweenReq || 0) : 0;
+    const maxCap = policy ? Number(policy.maxAutoApproveAmount || 0) : 0;
+
+    let existingUrgentSum = 0;
+    if (isUrgent && auth.departmentAccountId && minHours > 0) {
+      const windowStart = new Date(Date.now() - minHours * 3600 * 1000);
+      const agg = await db.deliveryCompanyDepartmentBudgetRequest.aggregate({
         where: {
           deliveryCompanyId: auth.companyId,
           requestedByAccountId: auth.departmentAccountId,
           priority: "URGENT",
+          status: { notIn: ["REJECTED", "CANCELLED"] },
+          createdAt: { gte: windowStart },
         },
-        orderBy: { createdAt: "desc" },
+        _sum: { amountCoins: true },
       });
-      if (lastUrgent) {
-        const hours = (Date.now() - new Date(lastUrgent.createdAt).getTime()) / 36e5;
-        if (hours < Number(policy.minHoursBetweenReq)) cooldownOk = false;
-      }
+      existingUrgentSum = Number(agg._sum.amountCoins ?? 0);
     }
+
+    const capOk = !isUrgent || minHours <= 0 ? amountCoins <= maxCap : existingUrgentSum + amountCoins <= maxCap + 1e-9;
 
     const canUrgentAutoApprove =
       isUrgent &&
       !!policy?.isActive &&
       !!policy?.isAutoApproveEnabled &&
-      amountCoins <= Number(policy.maxAutoApproveAmount || 0) &&
-      availableCompany >= amountCoins &&
-      cooldownOk;
+      !!policy &&
+      capOk &&
+      availableCompany >= amountCoins;
+
+    let urgentDenialNote: string | null = null;
+    if (isUrgent && !canUrgentAutoApprove) {
+      urgentDenialNote = buildUrgentAutoDenialNote({
+        hasPolicy: !!policy,
+        policyActive: !!policy?.isActive,
+        autoEnabled: !!policy?.isAutoApproveEnabled,
+        maxCap,
+        minHours,
+        existingUrgentSum,
+        requestedAmount: amountCoins,
+        availableCompany,
+      });
+    }
 
     const result = await db.$transaction(async (tx: any) => {
       const idemRow = await tx.deliveryCompanyIdempotencyKey.create({
@@ -148,9 +172,11 @@ export async function POST(req: NextRequest) {
           departmentId: requestedDepartmentId,
           requestedByAccountId: auth.departmentAccountId ?? null,
           amountCoins,
-          priority: body.priority === "URGENT" ? "URGENT" : "NORMAL",
+          priority: priorityEnum,
           status: canUrgentAutoApprove ? "AUTO_APPROVED" : "PENDING",
-          decisionNote: canUrgentAutoApprove ? "Auto-approved: urgent request matched account policy" : null,
+          decisionNote: canUrgentAutoApprove
+            ? "Auto-approved: urgent request matched account policy"
+            : urgentDenialNote,
           decidedAt: canUrgentAutoApprove ? new Date() : null,
           decidedBy: canUrgentAutoApprove ? "SYSTEM" : null,
         },
@@ -244,6 +270,7 @@ export async function POST(req: NextRequest) {
         groupKey: `budget:auto:${result.id}`,
       });
     } else if (result.status === "PENDING") {
+      // Main company inbox only — department account is not notified here (they see the request in Budgets).
       let accountEmail = "";
       if (auth.departmentAccountId) {
         const acc = await db.deliveryCompanyDepartmentAccount.findUnique({
@@ -252,10 +279,15 @@ export async function POST(req: NextRequest) {
         });
         accountEmail = acc?.email?.trim() ?? "";
       }
+      const isUrgentPendingManual =
+        priorityEnum === "URGENT" && !canUrgentAutoApprove && !!urgentDenialNote;
       await emitDepartmentNotification(auth.companyId, auth.companyId, "BUDGET_REQUEST_PENDING_MAIN", {
         requestId: result.id,
         accountEmail,
         amountCoins,
+        priority: priorityEnum,
+        urgentDidNotAutoApprove: isUrgentPendingManual,
+        autoApproveBlockReason: isUrgentPendingManual ? urgentDenialNote : undefined,
         groupKey: `budget:${result.id}`,
       });
     }

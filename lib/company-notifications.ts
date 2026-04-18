@@ -52,12 +52,22 @@ export async function emitDepartmentNotification(
 
   if (type === "BUDGET_REQUEST_PENDING_MAIN") {
     mappedType = "SUPPORT_HUMAN_REQUESTED";
-    title = "New budget request";
     const email = String((payload as { accountEmail?: string }).accountEmail || "").trim();
     const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
-    body = email
-      ? `Department account ${email} submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`
-      : `A department submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`;
+    const urgentManual = !!(payload as { urgentDidNotAutoApprove?: boolean }).urgentDidNotAutoApprove;
+    const reason = String((payload as { autoApproveBlockReason?: string }).autoApproveBlockReason || "").trim();
+    if (urgentManual) {
+      title = "Urgent budget — manual review needed";
+      const reasonBit = reason ? ` ${reason.slice(0, 220)}${reason.length > 220 ? "…" : ""}` : "";
+      body = email
+        ? `Urgent request from ${email} (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins) did not auto-approve under policy.${reasonBit} Approve or reject in Budgets.`
+        : `An urgent budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins) needs manual review.${reasonBit}`;
+    } else {
+      title = "New budget request";
+      body = email
+        ? `Department account ${email} submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`
+        : `A department submitted a budget request (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins). Review it in Budgets.`;
+    }
   } else if (type === "BUDGET_AUTO_URGENT_INFO_MAIN") {
     mappedType = "SUPPORT_HUMAN_REQUESTED";
     title = "Urgent budget auto-approved";

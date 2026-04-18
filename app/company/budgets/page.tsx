@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 
@@ -44,6 +44,7 @@ type RequestRow = {
   priority: string;
   status: string;
   createdAt: string;
+  decisionNote?: string | null;
   department?: Department;
   requestedByAccount?: { id: string; email: string } | null;
 };
@@ -87,6 +88,15 @@ function CompanyBudgetsPageContent() {
   const [scheduleAccountId, setScheduleAccountId] = useState("");
   const [scheduleAmount, setScheduleAmount] = useState("100");
   const [scheduleCadence, setScheduleCadence] = useState("MONTHLY");
+  const [scheduleDraft, setScheduleDraft] = useState<{
+    id: string;
+    amount: string;
+    cadence: string;
+    nextRunAt: string;
+  } | null>(null);
+  const [requestSort, setRequestSort] = useState<
+    "createdAt-desc" | "createdAt-asc" | "amount-desc" | "amount-asc" | "priority" | "status"
+  >("createdAt-desc");
   const isMain = actorRole === "MAIN_ADMIN";
 
   const load = async () => {
@@ -99,13 +109,14 @@ function CompanyBudgetsPageContent() {
       if (me?.actorRole) setActorRole(String(me.actorRole));
       const mainUser = (me?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
 
-      const [dep, pol, reqs, accRes, schedRes] = await Promise.all([
+      const [dep, polRes, reqs, accRes, schedRes] = await Promise.all([
         fetch("/api/company/departments").then((x) => x.json()),
-        fetch("/api/company/budget-policies").then((x) => x.json()),
+        fetch("/api/company/budget-policies"),
         fetch("/api/company/budget-requests").then((x) => x.json()),
         fetch("/api/company/department-accounts"),
         mainUser ? fetch("/api/company/budget-schedules") : Promise.resolve({ ok: false } as Response),
       ]);
+      const pol = polRes.ok ? await polRes.json() : [];
       const accData = accRes.ok ? await accRes.json() : [];
       const deps = Array.isArray(dep) ? dep : [];
       setDepartments(deps);
@@ -155,6 +166,20 @@ function CompanyBudgetsPageContent() {
   }, []);
 
   useEffect(() => {
+    if (!isMain || !policyAccountId) return;
+    const p = policies.find((x) => x.departmentAccountId === policyAccountId);
+    if (p) {
+      setMaxAutoApproveAmount(String(p.maxAutoApproveAmount ?? 0));
+      setMinHoursBetweenReq(String(p.minHoursBetweenReq ?? 0));
+      setIsAutoApproveEnabled(!!p.isAutoApproveEnabled);
+    } else {
+      setMaxAutoApproveAmount("0");
+      setMinHoursBetweenReq("0");
+      setIsAutoApproveEnabled(false);
+    }
+  }, [isMain, policyAccountId, policies]);
+
+  useEffect(() => {
     if (!highlightRequest) return;
     const raf = requestAnimationFrame(() => {
       const el = document.getElementById(`budget-req-${highlightRequest}`);
@@ -165,6 +190,16 @@ function CompanyBudgetsPageContent() {
     });
     return () => cancelAnimationFrame(raf);
   }, [highlightRequest, requests]);
+
+  const deletePolicy = async (policyId: string) => {
+    if (!window.confirm("Remove this budget policy for the account? You can add it again later.")) return;
+    setMessage(null);
+    const res = await fetch(`/api/company/budget-policies/${policyId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to delete policy");
+    setMessage("Policy removed.");
+    await load();
+  };
 
   const savePolicy = async () => {
     setMessage(null);
@@ -201,9 +236,13 @@ function CompanyBudgetsPageContent() {
     });
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to create budget request");
+    const isUrgentRow = String(data?.priority ?? "").toUpperCase() === "URGENT";
+    const note = data?.decisionNote ? String(data.decisionNote) : "";
     setMessage(
       data?.status === "PENDING"
-        ? "Budget request submitted and pending review."
+        ? isUrgentRow && note
+          ? `Not auto-approved: ${note}`
+          : "Budget request submitted and pending review."
         : `Budget request processed (${String(data.status)}).`,
     );
     await load();
@@ -242,6 +281,13 @@ function CompanyBudgetsPageContent() {
     await load();
   };
 
+  const toDatetimeLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   const patchSchedule = async (id: string, patch: Record<string, unknown>) => {
     setMessage(null);
     const res = await fetch(`/api/company/budget-schedules/${id}`, {
@@ -252,6 +298,7 @@ function CompanyBudgetsPageContent() {
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to update schedule");
     setMessage("Schedule updated.");
+    setScheduleDraft(null);
     await load();
   };
 
@@ -279,10 +326,47 @@ function CompanyBudgetsPageContent() {
     await load();
   };
 
-  if (loading) return <div>Loading budget controls...</div>;
+  const sortedRequests = useMemo(() => {
+    const copy = [...requests];
+    const byDate = (a: RequestRow, b: RequestRow) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    const byAmount = (a: RequestRow, b: RequestRow) =>
+      Number(a.amountCoins || 0) - Number(b.amountCoins || 0);
+    const prioRank = (p: string) => (p === "URGENT" ? 0 : 1);
+    const statusRank = (s: string) => {
+      if (s === "PENDING") return 0;
+      if (s === "AUTO_APPROVED" || s === "APPROVED") return 1;
+      return 2;
+    };
+    switch (requestSort) {
+      case "createdAt-desc":
+        copy.sort((a, b) => -byDate(a, b));
+        break;
+      case "createdAt-asc":
+        copy.sort(byDate);
+        break;
+      case "amount-desc":
+        copy.sort((a, b) => -byAmount(a, b));
+        break;
+      case "amount-asc":
+        copy.sort(byAmount);
+        break;
+      case "priority":
+        copy.sort((a, b) => prioRank(a.priority) - prioRank(b.priority) || -byDate(a, b));
+        break;
+      case "status":
+        copy.sort((a, b) => statusRank(a.status) - statusRank(b.status) || -byDate(a, b));
+        break;
+      default:
+        break;
+    }
+    return copy;
+  }, [requests, requestSort]);
 
-  const pendingRequests = requests.filter((r) => r.status === "PENDING");
-  const settledRequests = requests.filter((r) => r.status !== "PENDING");
+  const pendingRequests = sortedRequests.filter((r) => r.status === "PENDING");
+  const settledRequests = sortedRequests.filter((r) => r.status !== "PENDING");
+
+  if (loading) return <div>Loading budget controls...</div>;
 
   const renderRequestRow = (r: RequestRow, pendingStyle: boolean) => (
     <div
@@ -311,6 +395,12 @@ function CompanyBudgetsPageContent() {
             Amount: {Number(r.amountCoins || 0).toFixed(2)} coins · Priority:{" "}
             <span className={r.priority === "URGENT" ? "font-semibold text-amber-700 dark:text-amber-400" : ""}>{r.priority}</span>
           </p>
+          {r.priority === "URGENT" && r.status === "PENDING" && r.decisionNote && (
+            <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-950 dark:text-amber-50">
+              <span className="font-medium">Why not auto-approved: </span>
+              {r.decisionNote}
+            </p>
+          )}
         </div>
         <span
           className={
@@ -350,7 +440,7 @@ function CompanyBudgetsPageContent() {
       <section className="rounded-lg border p-4 space-y-3">
         <h2 className="text-lg font-semibold">Budget policy (per department account)</h2>
         <p className="text-xs text-muted-foreground">
-          Policies apply to one login account. Only <strong className="font-medium">Urgent</strong> on-demand requests can be auto-approved when the max amount, cooldown, and auto-approve toggle match. Recurring top-ups use scheduled transfers below.
+          Policies apply to one login account. <strong className="font-medium">Urgent</strong> requests are auto-approved when the toggle is on, company balance is enough, and the rolling total of urgent requests (same account, excluding rejected/cancelled) in the last <em>N</em> hours does not exceed the cap — set <em>N</em> with &quot;Rolling window (hours)&quot;. Recurring top-ups use scheduled transfers below.
         </p>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
@@ -373,7 +463,7 @@ function CompanyBudgetsPageContent() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="budget-policy-max-auto" className="text-xs font-medium text-foreground">
-              Max auto-approved amount (coins)
+              Max urgent total (coins) in rolling window
             </label>
             <input
               id="budget-policy-max-auto"
@@ -383,13 +473,13 @@ function CompanyBudgetsPageContent() {
               step="0.1"
               value={maxAutoApproveAmount}
               onChange={(e) => setMaxAutoApproveAmount(e.target.value)}
-              placeholder="Urgent requests above this need manual approval"
-              aria-label="Maximum coins for automatic approval of urgent requests"
+              placeholder="Sum of urgent amounts in the window must stay ≤ this"
+              aria-label="Maximum total urgent coins per rolling window"
             />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="budget-policy-min-hours" className="text-xs font-medium text-foreground">
-              Minimum hours between urgent requests
+              Rolling window (hours) for urgent total
             </label>
             <input
               id="budget-policy-min-hours"
@@ -398,8 +488,8 @@ function CompanyBudgetsPageContent() {
               min="0"
               value={minHoursBetweenReq}
               onChange={(e) => setMinHoursBetweenReq(e.target.value)}
-              placeholder="Cooldown between Urgent submissions from this account"
-              aria-label="Minimum hours between urgent budget requests"
+              placeholder="0 = only per-request cap (no rolling sum over time)"
+              aria-label="Hours over which urgent request amounts are summed"
             />
           </div>
           <div className="flex flex-col justify-end space-y-1.5 md:col-span-2">
@@ -411,12 +501,41 @@ function CompanyBudgetsPageContent() {
                 onChange={(e) => setIsAutoApproveEnabled(e.target.checked)}
                 className="h-4 w-4 rounded border-input"
               />
-              <span>When enabled, matching <strong className="font-medium">Urgent</strong> requests within the max amount can be funded automatically.</span>
+              <span>When enabled, <strong className="font-medium">Urgent</strong> requests are funded automatically if the rolling sum rules and company balance allow it.</span>
             </label>
           </div>
         </div>
-        <button className="rounded-md border px-3 py-2" onClick={savePolicy}>Save policy</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="rounded-md border px-3 py-2" onClick={savePolicy}>
+            Save policy
+          </button>
+        </div>
       </section>
+      )}
+
+      {!isMain && policies.length > 0 && (
+        <section className="rounded-lg border p-4 space-y-2">
+          <h2 className="text-lg font-semibold">Your budget policy (read-only)</h2>
+          <p className="text-xs text-muted-foreground">
+            Main company configures this. Urgent requests auto-approve only when these rules and the company balance allow it.
+          </p>
+          {policies.map((p) => (
+            <div key={p.id} className="rounded-md border bg-muted/30 p-3 text-sm">
+              <p>
+                Urgent auto-approve: <strong>{p.isAutoApproveEnabled ? "On" : "Off"}</strong>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Max urgent total in rolling window: {Number(p.maxAutoApproveAmount || 0).toFixed(2)} coins · Window: {p.minHoursBetweenReq}h
+              </p>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {!isMain && policies.length === 0 && (
+        <section className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          No budget policy is configured for your login yet. Urgent requests will stay pending until main company approves them.
+        </section>
       )}
 
       {!isMain && (
@@ -483,30 +602,93 @@ function CompanyBudgetsPageContent() {
         </div>
         <div className="space-y-2">
           {schedules.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
-              <div>
-                <span className="font-medium">{s.departmentAccount?.email || s.departmentAccountId}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  · {Number(s.amountCoins || 0).toFixed(2)} coins · {s.cadence}
-                </span>
-                <p className="text-xs text-muted-foreground">
-                  Next: {new Date(s.nextRunAt).toLocaleString()}
-                  {s.lastRunAt ? ` · Last: ${new Date(s.lastRunAt).toLocaleString()}` : ""}
-                </p>
+            <div key={s.id} className="rounded-md border p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-medium">{s.departmentAccount?.email || s.departmentAccountId}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {Number(s.amountCoins || 0).toFixed(2)} coins · {s.cadence}
+                  </span>
+                  <p className="text-xs text-muted-foreground">
+                    Next: {new Date(s.nextRunAt).toLocaleString()}
+                    {s.lastRunAt ? ` · Last: ${new Date(s.lastRunAt).toLocaleString()}` : ""}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() =>
+                      setScheduleDraft(
+                        scheduleDraft?.id === s.id
+                          ? null
+                          : {
+                              id: s.id,
+                              amount: String(s.amountCoins),
+                              cadence: s.cadence,
+                              nextRunAt: toDatetimeLocalInput(s.nextRunAt),
+                            },
+                      )
+                    }
+                  >
+                    {scheduleDraft?.id === s.id ? "Close edit" : "Edit"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() => patchSchedule(s.id, { isActive: !s.isActive })}
+                  >
+                    {s.isActive ? "Pause" : "Resume"}
+                  </button>
+                  <button type="button" className="rounded border border-destructive/40 px-2 py-1 text-xs text-destructive" onClick={() => deleteSchedule(s.id)}>
+                    Delete
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="rounded border px-2 py-1 text-xs"
-                  onClick={() => patchSchedule(s.id, { isActive: !s.isActive })}
-                >
-                  {s.isActive ? "Pause" : "Resume"}
-                </button>
-                <button type="button" className="rounded border border-destructive/40 px-2 py-1 text-xs text-destructive" onClick={() => deleteSchedule(s.id)}>
-                  Delete
-                </button>
-              </div>
+              {scheduleDraft?.id === s.id && (
+                <div className="mt-3 grid gap-2 border-t border-border pt-3 md:grid-cols-4">
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={scheduleDraft.amount}
+                    onChange={(e) => setScheduleDraft((d) => (d ? { ...d, amount: e.target.value } : d))}
+                    aria-label="Edit scheduled amount"
+                  />
+                  <select
+                    className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={scheduleDraft.cadence}
+                    onChange={(e) => setScheduleDraft((d) => (d ? { ...d, cadence: e.target.value } : d))}
+                    aria-label="Edit cadence"
+                  >
+                    <option value="DAILY">Daily</option>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="MONTHLY">Monthly</option>
+                  </select>
+                  <input
+                    type="datetime-local"
+                    className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={scheduleDraft.nextRunAt}
+                    onChange={(e) => setScheduleDraft((d) => (d ? { ...d, nextRunAt: e.target.value } : d))}
+                    aria-label="Next run at"
+                  />
+                  <button
+                    type="button"
+                    className="rounded-md border px-2 py-1.5 text-sm"
+                    onClick={() =>
+                      patchSchedule(scheduleDraft.id, {
+                        amountCoins: Number(scheduleDraft.amount || 0),
+                        cadence: scheduleDraft.cadence,
+                        nextRunAt: new Date(scheduleDraft.nextRunAt).toISOString(),
+                      })
+                    }
+                  >
+                    Save changes
+                  </button>
+                </div>
+              )}
             </div>
           ))}
           {schedules.length === 0 && <p className="text-sm text-muted-foreground">No recurring schedules yet.</p>}
@@ -555,8 +737,15 @@ function CompanyBudgetsPageContent() {
                 <span className="text-xs text-muted-foreground">Urgent auto-approve</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Auto (urgent): {p.isAutoApproveEnabled ? "On" : "Off"} | Max: {Number(p.maxAutoApproveAmount || 0).toFixed(2)} | Min between urgent requests: {p.minHoursBetweenReq}h
+                Auto (urgent): {p.isAutoApproveEnabled ? "On" : "Off"} | Max urgent total in window: {Number(p.maxAutoApproveAmount || 0).toFixed(2)} | Window: {p.minHoursBetweenReq}h
               </p>
+              <button
+                type="button"
+                className="mt-2 text-xs font-medium text-destructive hover:underline"
+                onClick={() => deletePolicy(p.id)}
+              >
+                Remove policy
+              </button>
             </div>
           ))}
           {policies.length === 0 && <p className="text-sm text-muted-foreground">No policies yet.</p>}
@@ -565,7 +754,25 @@ function CompanyBudgetsPageContent() {
       )}
 
       <section className="rounded-lg border p-4">
-        <h2 className="mb-3 text-lg font-semibold">Budget requests</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Budget requests</h2>
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Sort</span>
+            <select
+              className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              value={requestSort}
+              onChange={(e) => setRequestSort(e.target.value as typeof requestSort)}
+              aria-label="Sort budget requests"
+            >
+              <option value="createdAt-desc">Date (newest first)</option>
+              <option value="createdAt-asc">Date (oldest first)</option>
+              <option value="amount-desc">Amount (high → low)</option>
+              <option value="amount-asc">Amount (low → high)</option>
+              <option value="priority">Priority (Urgent first)</option>
+              <option value="status">Status (Pending first)</option>
+            </select>
+          </label>
+        </div>
         {isMain ? (
           <>
             {pendingRequests.length > 0 && (
@@ -587,7 +794,7 @@ function CompanyBudgetsPageContent() {
           </>
         ) : (
           <div className="space-y-3">
-            {requests.map((r) => renderRequestRow(r, r.status === "PENDING"))}
+            {sortedRequests.map((r) => renderRequestRow(r, r.status === "PENDING"))}
           </div>
         )}
         {requests.length === 0 && <p className="text-sm text-muted-foreground">No budget requests yet.</p>}

@@ -1,28 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
-import { ensureCompanyIsActive, ensureMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
+import { ensureCompanyIsActive, ensureCompanyRoleAllowed, ensureMainDepartmentActor, isMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
 
 export async function GET() {
   try {
     const auth = await requireCompanyAuth();
     await ensureCompanyIsActive(auth.companyId);
-    ensureMainDepartmentActor(auth);
+    ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR", "DEPT_VIEWER"]);
     const db: any = prisma;
-    const rows = await db.deliveryCompanyDepartmentBudgetPolicy.findMany({
-      where: { deliveryCompanyId: auth.companyId },
-      orderBy: { createdAt: "desc" },
-      include: {
-        departmentAccount: {
-          select: {
-            id: true,
-            email: true,
-            department: { select: { id: true, label: true, isMainDepartment: true } },
-          },
+    const include = {
+      departmentAccount: {
+        select: {
+          id: true,
+          email: true,
+          department: { select: { id: true, label: true, isMainDepartment: true } },
         },
       },
+    };
+    if (isMainDepartmentActor(auth)) {
+      const rows = await db.deliveryCompanyDepartmentBudgetPolicy.findMany({
+        where: { deliveryCompanyId: auth.companyId },
+        orderBy: { createdAt: "desc" },
+        include,
+      });
+      return NextResponse.json(rows);
+    }
+    if (!auth.departmentAccountId) {
+      return NextResponse.json([]);
+    }
+    const row = await db.deliveryCompanyDepartmentBudgetPolicy.findUnique({
+      where: { departmentAccountId: auth.departmentAccountId },
+      include,
     });
-    return NextResponse.json(rows);
+    return NextResponse.json(row ? [row] : []);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to load budget policies";
     return NextResponse.json({ error: msg }, { status: 500 });
