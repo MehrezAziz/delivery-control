@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
 import { ensureCompanyIsActive, ensureMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
+import { transferCompanyCoinsToDepartmentBudgetWallet } from "@/lib/department-budget-transfer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,38 +34,11 @@ export async function POST(req: NextRequest) {
     if (department.isMainDepartment) return NextResponse.json({ error: "Cannot transfer to main department" }, { status: 400 });
 
     const result = await db.$transaction(async (tx: any) => {
-      const company = await tx.deliveryCompany.findUnique({
-        where: { id: auth.companyId },
-        select: { coinBalance: true, lockedCoins: true },
-      });
-      const available = Number(company?.coinBalance || 0) - Number(company?.lockedCoins || 0);
-      if (available < amountCoins) throw new Error("Insufficient company available balance");
-
-      const wallet = await tx.deliveryCompanyDepartmentBudgetWallet.upsert({
-        where: { departmentId: department.id },
-        create: {
-          deliveryCompanyId: auth.companyId,
-          departmentId: department.id,
-          availableCoins: amountCoins,
-        },
-        update: {
-          availableCoins: { increment: amountCoins },
-        },
-      });
-
-      const newCompanyBalance = Number(company.coinBalance) - amountCoins;
-      await tx.deliveryCompany.update({
-        where: { id: auth.companyId },
-        data: { coinBalance: newCompanyBalance },
-      });
-      await tx.deliveryCompanyTransaction.create({
-        data: {
-          deliveryCompanyId: auth.companyId,
-          type: "DEPARTMENT_BUDGET_ALLOC",
-          amount: -amountCoins,
-          balanceAfter: newCompanyBalance,
-          description: `Direct transfer to department ${department.id}`,
-        },
+      const { newCompanyBalance, walletAvailable } = await transferCompanyCoinsToDepartmentBudgetWallet(tx, {
+        companyId: auth.companyId,
+        departmentId: department.id,
+        amountCoins,
+        description: `Direct transfer to department ${department.id}`,
       });
 
       return {
@@ -73,7 +47,7 @@ export async function POST(req: NextRequest) {
         departmentId: department.id,
         departmentLabel: department.label,
         amountCoins,
-        departmentBalance: Number(wallet.availableCoins),
+        departmentBalance: walletAvailable,
         companyBalance: newCompanyBalance,
       };
     });

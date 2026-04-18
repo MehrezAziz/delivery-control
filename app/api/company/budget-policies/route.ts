@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
     const db: any = prisma;
     const body = await req.json();
     const deptAccountId = String(body?.departmentAccountId || body?.departmentId || "");
-    if (!deptAccountId || !body?.periodType) {
-      return NextResponse.json({ error: "departmentAccountId and periodType are required" }, { status: 400 });
+    if (!deptAccountId) {
+      return NextResponse.json({ error: "departmentAccountId is required" }, { status: 400 });
     }
     const account = await db.deliveryCompanyDepartmentAccount.findFirst({
       where: { id: deptAccountId, deliveryCompanyId: auth.companyId },
@@ -51,15 +51,11 @@ export async function POST(req: NextRequest) {
       create: {
         deliveryCompanyId: auth.companyId,
         departmentAccountId: account.id,
-        periodType: body.periodType,
-        intervalDays: body.intervalDays ?? null,
         maxAutoApproveAmount: Number(body.maxAutoApproveAmount || 0),
         minHoursBetweenReq: Number(body.minHoursBetweenReq || 0),
         isAutoApproveEnabled: !!body.isAutoApproveEnabled,
       },
       update: {
-        periodType: body.periodType,
-        intervalDays: body.intervalDays ?? null,
         maxAutoApproveAmount: Number(body.maxAutoApproveAmount || 0),
         minHoursBetweenReq: Number(body.minHoursBetweenReq || 0),
         isAutoApproveEnabled: !!body.isAutoApproveEnabled,
@@ -74,7 +70,6 @@ export async function POST(req: NextRequest) {
       {
         policyId: policy.id,
         departmentAccountId: policy.departmentAccountId,
-        periodType: policy.periodType,
         auto: policy.isAutoApproveEnabled,
       },
     );

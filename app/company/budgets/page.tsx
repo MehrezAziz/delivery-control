@@ -14,11 +14,23 @@ type DepartmentAccount = {
 type Policy = {
   id: string;
   departmentAccountId: string;
-  periodType: string;
-  intervalDays?: number | null;
   maxAutoApproveAmount: string | number;
   minHoursBetweenReq: number;
   isAutoApproveEnabled: boolean;
+  departmentAccount?: {
+    id: string;
+    email: string;
+    department?: Department;
+  };
+};
+type BudgetScheduleRow = {
+  id: string;
+  departmentAccountId: string;
+  amountCoins: string | number;
+  cadence: string;
+  nextRunAt: string;
+  lastRunAt?: string | null;
+  isActive: boolean;
   departmentAccount?: {
     id: string;
     email: string;
@@ -59,8 +71,6 @@ function CompanyBudgetsPageContent() {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [policyAccountId, setPolicyAccountId] = useState("");
-  const [periodType, setPeriodType] = useState("MONTHLY");
-  const [intervalDays, setIntervalDays] = useState("5");
   const [maxAutoApproveAmount, setMaxAutoApproveAmount] = useState("0");
   const [minHoursBetweenReq, setMinHoursBetweenReq] = useState("0");
   const [isAutoApproveEnabled, setIsAutoApproveEnabled] = useState(false);
@@ -73,6 +83,10 @@ function CompanyBudgetsPageContent() {
   const [transferAmount, setTransferAmount] = useState("50");
   const [companyLedger, setCompanyLedger] = useState<LedgerRow[]>([]);
   const [deptWallets, setDeptWallets] = useState<DeptWalletRow[]>([]);
+  const [schedules, setSchedules] = useState<BudgetScheduleRow[]>([]);
+  const [scheduleAccountId, setScheduleAccountId] = useState("");
+  const [scheduleAmount, setScheduleAmount] = useState("100");
+  const [scheduleCadence, setScheduleCadence] = useState("MONTHLY");
   const isMain = actorRole === "MAIN_ADMIN";
 
   const load = async () => {
@@ -85,11 +99,12 @@ function CompanyBudgetsPageContent() {
       if (me?.actorRole) setActorRole(String(me.actorRole));
       const mainUser = (me?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
 
-      const [dep, pol, reqs, accRes] = await Promise.all([
+      const [dep, pol, reqs, accRes, schedRes] = await Promise.all([
         fetch("/api/company/departments").then((x) => x.json()),
         fetch("/api/company/budget-policies").then((x) => x.json()),
         fetch("/api/company/budget-requests").then((x) => x.json()),
         fetch("/api/company/department-accounts"),
+        mainUser ? fetch("/api/company/budget-schedules") : Promise.resolve({ ok: false } as Response),
       ]);
       const accData = accRes.ok ? await accRes.json() : [];
       const deps = Array.isArray(dep) ? dep : [];
@@ -102,6 +117,17 @@ function CompanyBudgetsPageContent() {
       );
       if (!transferDepartmentAccountId && transferable.length > 0) {
         setTransferDepartmentAccountId(transferable[0].id);
+      }
+      if (mainUser) {
+        if (schedRes.ok) {
+          const s = await schedRes.json();
+          setSchedules(Array.isArray(s) ? s : []);
+          if (!scheduleAccountId && transferable.length > 0) setScheduleAccountId(transferable[0].id);
+        } else {
+          setSchedules([]);
+        }
+      } else {
+        setSchedules([]);
       }
       setPolicies(Array.isArray(pol) ? pol : []);
       setRequests(Array.isArray(reqs) ? reqs : []);
@@ -147,8 +173,6 @@ function CompanyBudgetsPageContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         departmentAccountId: policyAccountId,
-        periodType,
-        intervalDays: periodType === "CUSTOM_INTERVAL" ? Number(intervalDays || 0) : null,
         maxAutoApproveAmount: Number(maxAutoApproveAmount || 0),
         minHoursBetweenReq: Number(minHoursBetweenReq || 0),
         isAutoApproveEnabled,
@@ -198,6 +222,46 @@ function CompanyBudgetsPageContent() {
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to transfer coins");
     setMessage("Coins sent successfully.");
+    await load();
+  };
+
+  const createSchedule = async () => {
+    setMessage(null);
+    const res = await fetch("/api/company/budget-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        departmentAccountId: scheduleAccountId,
+        amountCoins: Number(scheduleAmount || 0),
+        cadence: scheduleCadence,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to create schedule");
+    setMessage("Scheduled transfer saved.");
+    await load();
+  };
+
+  const patchSchedule = async (id: string, patch: Record<string, unknown>) => {
+    setMessage(null);
+    const res = await fetch(`/api/company/budget-schedules/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to update schedule");
+    setMessage("Schedule updated.");
+    await load();
+  };
+
+  const deleteSchedule = async (id: string) => {
+    if (!window.confirm("Delete this scheduled transfer?")) return;
+    setMessage(null);
+    const res = await fetch(`/api/company/budget-schedules/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || "Failed to delete schedule");
+    setMessage("Schedule removed.");
     await load();
   };
 
@@ -286,7 +350,7 @@ function CompanyBudgetsPageContent() {
       <section className="rounded-lg border p-4 space-y-3">
         <h2 className="text-lg font-semibold">Budget policy (per department account)</h2>
         <p className="text-xs text-muted-foreground">
-          Policies apply to one login account. Urgent requests that fit the policy (amount, cooldown, auto-approve on) can be funded automatically.
+          Policies apply to one login account. Only <strong className="font-medium">Urgent</strong> on-demand requests can be auto-approved when the max amount, cooldown, and auto-approve toggle match. Recurring top-ups use scheduled transfers below.
         </p>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
@@ -308,40 +372,6 @@ function CompanyBudgetsPageContent() {
             </select>
           </div>
           <div className="space-y-1.5">
-            <label htmlFor="budget-policy-period" className="text-xs font-medium text-foreground">
-              Policy period
-            </label>
-            <select
-              id="budget-policy-period"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={periodType}
-              onChange={(e) => setPeriodType(e.target.value)}
-            >
-              <option value="DAILY">Daily</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="MONTHLY">Monthly</option>
-              <option value="YEARLY">Yearly</option>
-              <option value="CUSTOM_INTERVAL">Custom interval (days)</option>
-            </select>
-          </div>
-          {periodType === "CUSTOM_INTERVAL" && (
-            <div className="space-y-1.5 md:col-span-2">
-              <label htmlFor="budget-policy-interval-days" className="text-xs font-medium text-foreground">
-                Custom interval length (days)
-              </label>
-              <input
-                id="budget-policy-interval-days"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                type="number"
-                min="1"
-                value={intervalDays}
-                onChange={(e) => setIntervalDays(e.target.value)}
-                placeholder="e.g. 14 — repeat every N days"
-                aria-label="Custom interval length in days"
-              />
-            </div>
-          )}
-          <div className="space-y-1.5">
             <label htmlFor="budget-policy-max-auto" className="text-xs font-medium text-foreground">
               Max auto-approved amount (coins)
             </label>
@@ -359,7 +389,7 @@ function CompanyBudgetsPageContent() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="budget-policy-min-hours" className="text-xs font-medium text-foreground">
-              Minimum hours between requests
+              Minimum hours between urgent requests
             </label>
             <input
               id="budget-policy-min-hours"
@@ -368,8 +398,8 @@ function CompanyBudgetsPageContent() {
               min="0"
               value={minHoursBetweenReq}
               onChange={(e) => setMinHoursBetweenReq(e.target.value)}
-              placeholder="Cooldown between submissions from this account"
-              aria-label="Minimum hours between budget requests"
+              placeholder="Cooldown between Urgent submissions from this account"
+              aria-label="Minimum hours between urgent budget requests"
             />
           </div>
           <div className="flex flex-col justify-end space-y-1.5 md:col-span-2">
@@ -399,6 +429,87 @@ function CompanyBudgetsPageContent() {
             <option value="URGENT">Urgent</option>
           </select>
           <button className="rounded-md border px-3 py-2" onClick={createRequest}>Create request</button>
+        </div>
+      </section>
+      )}
+
+      {isMain && (
+      <section className="rounded-lg border p-4 space-y-3">
+        <h2 className="text-lg font-semibold">Scheduled transfers (recurring)</h2>
+        <p className="text-xs text-muted-foreground">
+          Automatically send coins to a department account on each period (daily / weekly / monthly). The run checks your company available balance. If funds are short, you get an inbox reminder within ~24h before the next run. Configure a system cron to call{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">POST /api/cron/scheduled-budget-transfers</code> with header{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">Authorization: Bearer $CRON_SECRET</code>.
+        </p>
+        <div className="grid gap-2 md:grid-cols-4">
+          <select
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={scheduleAccountId}
+            onChange={(e) => setScheduleAccountId(e.target.value)}
+            aria-label="Department account for schedule"
+          >
+            <option value="">Department account</option>
+            {departmentAccounts
+              .filter((a) => a.department && !a.department.isMainDepartment)
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.email} — {a.department?.label || "Dept"}
+                </option>
+              ))}
+          </select>
+          <input
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            type="number"
+            min="0.1"
+            step="0.1"
+            value={scheduleAmount}
+            onChange={(e) => setScheduleAmount(e.target.value)}
+            placeholder="Amount (coins)"
+            aria-label="Scheduled amount in coins"
+          />
+          <select
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={scheduleCadence}
+            onChange={(e) => setScheduleCadence(e.target.value)}
+            aria-label="Cadence"
+          >
+            <option value="DAILY">Daily</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="MONTHLY">Monthly</option>
+          </select>
+          <button type="button" className="rounded-md border px-3 py-2" onClick={createSchedule}>
+            Add schedule
+          </button>
+        </div>
+        <div className="space-y-2">
+          {schedules.map((s) => (
+            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+              <div>
+                <span className="font-medium">{s.departmentAccount?.email || s.departmentAccountId}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {Number(s.amountCoins || 0).toFixed(2)} coins · {s.cadence}
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  Next: {new Date(s.nextRunAt).toLocaleString()}
+                  {s.lastRunAt ? ` · Last: ${new Date(s.lastRunAt).toLocaleString()}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded border px-2 py-1 text-xs"
+                  onClick={() => patchSchedule(s.id, { isActive: !s.isActive })}
+                >
+                  {s.isActive ? "Pause" : "Resume"}
+                </button>
+                <button type="button" className="rounded border border-destructive/40 px-2 py-1 text-xs text-destructive" onClick={() => deleteSchedule(s.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+          {schedules.length === 0 && <p className="text-sm text-muted-foreground">No recurring schedules yet.</p>}
         </div>
       </section>
       )}
@@ -441,10 +552,10 @@ function CompanyBudgetsPageContent() {
                   {p.departmentAccount?.email || p.departmentAccountId}
                   {p.departmentAccount?.department?.label ? ` · ${p.departmentAccount.department.label}` : ""}
                 </span>
-                <span>{p.periodType}</span>
+                <span className="text-xs text-muted-foreground">Urgent auto-approve</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Auto (urgent): {p.isAutoApproveEnabled ? "On" : "Off"} | Max: {Number(p.maxAutoApproveAmount || 0).toFixed(2)} | Min between requests: {p.minHoursBetweenReq}h
+                Auto (urgent): {p.isAutoApproveEnabled ? "On" : "Off"} | Max: {Number(p.maxAutoApproveAmount || 0).toFixed(2)} | Min between urgent requests: {p.minHoursBetweenReq}h
               </p>
             </div>
           ))}

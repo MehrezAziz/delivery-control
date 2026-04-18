@@ -66,6 +66,20 @@ export async function emitDepartmentNotification(
     body = email
       ? `An urgent budget request from ${email} was auto-approved (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins) under this account’s policy.`
       : `An urgent budget request was auto-approved (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins) under policy.`;
+  } else if (type === "SCHEDULED_BUDGET_INSUFFICIENT_REMINDER_MAIN") {
+    mappedType = "SUPPORT_HUMAN_REQUESTED";
+    title = "Scheduled budget: top up needed";
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    const email = String((payload as { accountEmail?: string }).accountEmail || "").trim();
+    const when = String((payload as { nextRunAt?: string }).nextRunAt || "").trim();
+    body = email
+      ? `Within ~24h, a scheduled transfer of ${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins is due for ${email}, but the company wallet does not have enough available balance. Add coins before ${when || "the run"}.`
+      : `A scheduled budget transfer is due within ~24h (${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins), but the company wallet balance is insufficient.`;
+  } else if (type === "SCHEDULED_BUDGET_RUN_SKIPPED_MAIN") {
+    mappedType = "DISPUTE_REQUIRES_DECISION";
+    title = "Scheduled budget skipped";
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    body = `A scheduled budget transfer of ${Number.isFinite(amt) ? amt.toFixed(2) : "?"} coins was skipped due to insufficient company balance. The schedule was advanced to the next period — top up for the next run.`;
   } else if (type === "BUDGET_REQUEST_DECIDED") {
     mappedType = payload?.decision === "APPROVE" ? "SUPPORT_TICKET_REPLY" : "DISPUTE_REQUIRES_DECISION";
     title = "Budget request decision";
@@ -88,18 +102,24 @@ export async function emitDepartmentNotification(
 
   // Fire-and-forget style: if notification dispatch fails, do not break business flow.
   const requestId = (payload as { requestId?: string }).requestId;
+  const scheduleId = (payload as { scheduleId?: string }).scheduleId;
   const inferredGroupKey =
     (payload as { groupKey?: string }).groupKey ??
-    (requestId && type.includes("BUDGET") ? `budget:${requestId}` : undefined) ??
+    (requestId && type.includes("BUDGET") && !type.includes("SCHEDULED") ? `budget:${requestId}` : undefined) ??
+    (scheduleId && type.includes("SCHEDULED_BUDGET") ? `scheduled-budget:${scheduleId}` : undefined) ??
     (requestId && type.includes("REFUND") ? `refund:${requestId}` : undefined);
 
-  const relatedEntityType = type.includes("REFUND") ? "RefundRequest" : "BudgetRequest";
+  const relatedEntityType = type.includes("REFUND")
+    ? "RefundRequest"
+    : type.includes("SCHEDULED_BUDGET")
+      ? "ScheduledBudgetTransfer"
+      : "BudgetRequest";
   const jsonBody = JSON.stringify({
     type: mappedType,
     title,
     body,
     relatedEntityType,
-    relatedEntityId: requestId ?? null,
+    relatedEntityId: scheduleId ?? requestId ?? null,
     groupKey: inferredGroupKey,
     targetUserId,
   });
@@ -112,7 +132,7 @@ export async function emitDepartmentNotification(
         title,
         body,
         relatedEntityType,
-        relatedEntityId: requestId ?? null,
+        relatedEntityId: scheduleId ?? requestId ?? null,
         groupKey: inferredGroupKey ?? null,
       });
     } catch {

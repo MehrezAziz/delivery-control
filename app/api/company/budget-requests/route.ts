@@ -101,16 +101,22 @@ export async function POST(req: NextRequest) {
     const isUrgent = body.priority === "URGENT";
 
     let cooldownOk = true;
-    if (policy && Number(policy.minHoursBetweenReq) > 0 && auth.departmentAccountId) {
-      const lastReq = await db.deliveryCompanyDepartmentBudgetRequest.findFirst({
+    if (
+      isUrgent &&
+      policy &&
+      Number(policy.minHoursBetweenReq) > 0 &&
+      auth.departmentAccountId
+    ) {
+      const lastUrgent = await db.deliveryCompanyDepartmentBudgetRequest.findFirst({
         where: {
           deliveryCompanyId: auth.companyId,
           requestedByAccountId: auth.departmentAccountId,
+          priority: "URGENT",
         },
         orderBy: { createdAt: "desc" },
       });
-      if (lastReq) {
-        const hours = (Date.now() - new Date(lastReq.createdAt).getTime()) / 36e5;
+      if (lastUrgent) {
+        const hours = (Date.now() - new Date(lastUrgent.createdAt).getTime()) / 36e5;
         if (hours < Number(policy.minHoursBetweenReq)) cooldownOk = false;
       }
     }
