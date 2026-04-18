@@ -1585,6 +1585,7 @@ model Notification {
   readAt              DateTime?                  @map("read_at")
   deliveryStatus      NotificationDeliveryStatus @default(PENDING) @map("delivery_status")
   failureReason       String?                    @map("failure_reason")
+  notificationMetadata Json?                   @map("notification_metadata")
 
   // Relations removed — userId is polymorphic (can be User or SuperUser)
   // Lookups handled in application code based on userType
