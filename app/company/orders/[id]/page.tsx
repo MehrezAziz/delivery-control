@@ -40,6 +40,8 @@ type Order = {
     deliveredAt?: string | null;
     image1Proof?: string | null;
     image2Proof?: string | null;
+    customerCallCountBeforeReturn?: number | null;
+    returnEvidenceImageUrl?: string | null;
     driver?: {
       user?: { firstName?: string | null; secondName?: string | null; phone?: string | null };
       performanceMetrics?: {
@@ -689,6 +691,56 @@ export default function CompanyOrderDetailsPage() {
               Proof 2 {order.driverAssignment?.image2Proof ? "uploaded" : "optional"}
             </span>
           </div>
+          {(order.status === "RETURNED" || order.status === "RETURN_DEPOSIT") && (
+            <div className="mt-4 space-y-3 rounded-lg border border-rose-200/70 bg-rose-50/50 p-4 dark:border-rose-900/60 dark:bg-rose-950/25">
+              <p className="text-sm font-semibold text-foreground">Return — driver details</p>
+              <p className="text-sm">
+                <span className="text-muted-foreground">Calls to customer before return: </span>
+                <span className="font-medium tabular-nums">
+                  {order.driverAssignment?.customerCallCountBeforeReturn != null
+                    ? String(order.driverAssignment.customerCallCountBeforeReturn)
+                    : "—"}
+                </span>
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {order.driverAssignment?.image1Proof ? (
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Proof image 1</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={order.driverAssignment.image1Proof}
+                      alt="Proof 1"
+                      className="max-h-52 w-full rounded-md border object-contain bg-muted"
+                    />
+                  </div>
+                ) : null}
+                {order.driverAssignment?.image2Proof ? (
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Proof image 2</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={order.driverAssignment.image2Proof}
+                      alt="Proof 2"
+                      className="max-h-52 w-full rounded-md border object-contain bg-muted"
+                    />
+                  </div>
+                ) : null}
+                {order.driverAssignment?.returnEvidenceImageUrl ? (
+                  <div className="sm:col-span-2">
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Return screenshot (gallery)
+                    </p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={order.driverAssignment.returnEvidenceImageUrl}
+                      alt="Return evidence"
+                      className="max-h-52 w-full max-w-md rounded-md border object-contain bg-muted"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         {(order.status === "PENDING_CUSTOMER_APPROVAL" ||
           order.status === "DRIVER_ASSIGNED" ||
           order.status === "DRIVER_ARRIVED") && (

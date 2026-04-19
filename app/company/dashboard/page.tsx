@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type CompanyProfile = { id: string; name: string; coinBalance: string | number; onboardingCompleted?: boolean };
-type Stats = { orders?: number; delivered?: number; returned?: number; cancelled?: number; grossAmount?: string | number };
+type Stats = {
+  orders?: number;
+  delivered?: number;
+  returned?: number;
+  cancelled?: number;
+  grossAmount?: string | number;
+  amountHold?: string | number;
+};
 type CompanyMe = { actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER" };
 
 export default function CompanyDashboardPage() {
@@ -70,8 +77,11 @@ export default function CompanyDashboardPage() {
           <p className="text-lg font-semibold">{Number(walletInfo?.availableCapacity || 0).toFixed(2)}</p>
         </div>
         <div className="rounded-lg border p-4">
-          <p className="text-sm text-muted-foreground">Gross Amount</p>
-          <p className="text-lg font-semibold">{Number(stats?.grossAmount || 0).toFixed(2)}</p>
+          <p className="text-sm text-muted-foreground">Amount Hold</p>
+          <p className="text-lg font-semibold">{Number(stats?.amountHold ?? 0).toFixed(2)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Coins tied to in-flight orders (order price × 1.5 per open delivery / return flow).
+          </p>
         </div>
       </div>
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}

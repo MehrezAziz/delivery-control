@@ -111,6 +111,13 @@ export default function CompanyWalletPage() {
           <p className="text-lg font-semibold">{Number(wallet?.maxNegativeBalance || 0).toFixed(2)}</p>
         </div>
       </section>
+      <section className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">
+        <h2 className="text-lg font-semibold">Buy coins</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Purchase additional coins for your company wallet.{" "}
+          <span className="font-medium text-foreground">Coming soon.</span>
+        </p>
+      </section>
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 text-lg font-semibold">Transactions</h2>
         <div className="space-y-2">
