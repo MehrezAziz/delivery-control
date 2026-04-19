@@ -865,7 +865,14 @@ function CompanyOrdersPageContent() {
             const placedByLine =
               profile?.actorRole === "MAIN_ADMIN" ? formatOrderPlacedBy(order) : null;
             return (
-            <div key={order.id} className="rounded-md border p-3 text-sm">
+            <div
+              key={order.id}
+              className={`rounded-md border p-3 text-sm ${
+                order.status === "PENDING_CUSTOMER_APPROVAL"
+                  ? "border-violet-300/80 bg-gradient-to-br from-violet-100/90 via-fuchsia-50/80 to-amber-50/70 dark:border-violet-700/60 dark:from-violet-950/45 dark:via-fuchsia-950/35 dark:to-amber-950/25"
+                  : ""
+              }`}
+            >
               <div className="flex justify-between gap-2">
                 <Link
                   href={`/company/orders/${order.id}`}

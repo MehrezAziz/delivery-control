@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Package,
   PanelRightClose,
+  Pencil,
   Truck,
   User,
 } from "lucide-react";
@@ -32,6 +33,17 @@ type Order = {
     deliveredAt?: string | null;
     image1Proof?: string | null;
     image2Proof?: string | null;
+    driver?: {
+      user?: { firstName?: string | null; secondName?: string | null; phone?: string | null };
+      performanceMetrics?: {
+        avgRating?: string | number | null;
+        avgDeliveryTimeMinutes?: number | null;
+        completionRate?: string | number | null;
+        completedOrders?: number | null;
+        totalOrders?: number | null;
+      } | null;
+      ratingsReceived?: Array<{ score: number; comment: string | null; createdAt: string }>;
+    } | null;
   } | null;
   returnDepositFeedback?: {
     feedback: string;
@@ -112,6 +124,7 @@ export default function CompanyOrderDetailsPage() {
   const handledChatQueryRef = useRef(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [returnFeedbackEditing, setReturnFeedbackEditing] = useState(false);
 
   /** Scroll message list internally, then align the composer to the bottom of the viewport. Never use scrollIntoView on message nodes — it scrolls the page to the last bubble and hides the input. */
   const scrollChatIntoView = useCallback((opts?: { focusInput?: boolean }) => {
@@ -155,6 +168,9 @@ export default function CompanyOrderDetailsPage() {
     if (found?.returnDepositFeedback) {
       setFeedback(found.returnDepositFeedback.feedback || "");
       setConditionIssue(!!found.returnDepositFeedback.conditionIssue);
+      setReturnFeedbackEditing(false);
+    } else {
+      setReturnFeedbackEditing(true);
     }
     setCancelRemain(computeCancelRemaining(found));
   }, [params.id]);
@@ -175,6 +191,10 @@ export default function CompanyOrderDetailsPage() {
         sessionStorage.removeItem("dc_company_chat_order_id");
       }
     };
+  }, [params.id]);
+
+  useEffect(() => {
+    setReturnFeedbackEditing(true);
   }, [params.id]);
 
   /** Opened from a “new message” notification (?chat=1): show latest messages, composer, and focus the input. */
@@ -231,6 +251,18 @@ export default function CompanyOrderDetailsPage() {
     const t = setInterval(() => setCancelRemain(computeCancelRemaining(order)), 1000);
     return () => clearInterval(t);
   }, [order]);
+
+  /** After expanding chat from minimized, jump to the latest message (not the top). */
+  useEffect(() => {
+    if (chatCollapsed) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = chatScrollRef.current;
+        if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+        setIsNearBottom(true);
+      });
+    });
+  }, [chatCollapsed]);
 
   /** Keep the message list scrolled to the tail only inside its box — do not scrollIntoView on inner nodes (that steals viewport from the composer). */
   useEffect(() => {
@@ -339,6 +371,8 @@ export default function CompanyOrderDetailsPage() {
     const data = await res.json();
     if (!res.ok) return setMessage(data?.error || "Failed to save feedback");
     setMessage("Feedback saved.");
+    setReturnFeedbackEditing(false);
+    await loadOrder();
   };
 
   const approveDriver = async () => {
@@ -491,14 +525,81 @@ export default function CompanyOrderDetailsPage() {
           </h2>
         </div>
         <div className="space-y-4 p-5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
-              <User className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div>
-                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Driver ID</p>
-                <p className="font-mono text-sm font-semibold">{order.driverAssignment?.driverId || "—"}</p>
+          {order.driverAssignment?.driver && (
+            <div className="rounded-lg border border-slate-100 bg-muted/20 p-4 dark:border-slate-800">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Profile</p>
+              <p className="mt-1 text-base font-semibold text-foreground">
+                {[order.driverAssignment.driver.user?.firstName, order.driverAssignment.driver.user?.secondName]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim() || "—"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Phone:{" "}
+                <span className="font-medium text-foreground">
+                  {order.driverAssignment.driver.user?.phone?.trim() || "—"}
+                </span>
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-[11px] uppercase text-muted-foreground">Avg rating</p>
+                  <p className="text-sm font-semibold">
+                    {order.driverAssignment.driver.performanceMetrics?.avgRating != null
+                      ? Number(order.driverAssignment.driver.performanceMetrics.avgRating).toFixed(1)
+                      : "—"}{" "}
+                    <span className="text-xs font-normal text-muted-foreground">/ 10</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase text-muted-foreground">Avg delivery time</p>
+                  <p className="text-sm font-semibold">
+                    {order.driverAssignment.driver.performanceMetrics?.avgDeliveryTimeMinutes != null
+                      ? `${order.driverAssignment.driver.performanceMetrics.avgDeliveryTimeMinutes} min`
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase text-muted-foreground">Completion</p>
+                  <p className="text-sm font-semibold">
+                    {order.driverAssignment.driver.performanceMetrics?.completionRate != null
+                      ? `${Number(order.driverAssignment.driver.performanceMetrics.completionRate).toFixed(0)}%`
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase text-muted-foreground">Orders</p>
+                  <p className="text-sm font-semibold">
+                    {order.driverAssignment.driver.performanceMetrics?.completedOrders ?? "—"}
+                    {order.driverAssignment.driver.performanceMetrics?.totalOrders != null
+                      ? ` / ${order.driverAssignment.driver.performanceMetrics.totalOrders}`
+                      : ""}
+                  </p>
+                </div>
               </div>
+              {order.driverAssignment.driver.ratingsReceived &&
+                order.driverAssignment.driver.ratingsReceived.filter((r) => r.comment?.trim()).length > 0 && (
+                  <div className="mt-3 border-t border-dashed pt-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Recent comments
+                    </p>
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-foreground">
+                      {order.driverAssignment.driver.ratingsReceived
+                        .filter((r) => r.comment?.trim())
+                        .slice(0, 6)
+                        .map((r, idx) => (
+                          <li key={`${r.createdAt}-${r.score}-${idx}`} className="break-words">
+                            <span className="text-muted-foreground">({r.score}/10)</span> {r.comment}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+              <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                ID: {order.driverAssignment.driverId || "—"}
+              </p>
             </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
               <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <div>
@@ -570,19 +671,55 @@ export default function CompanyOrderDetailsPage() {
           </p>
           {order.status === "RETURN_DEPOSIT" && (
             <div className="mt-3 space-y-2">
-              <textarea
-                className="min-h-24 w-full rounded-md border px-3 py-2"
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Describe return/deposit condition..."
-              />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={conditionIssue} onChange={(e) => setConditionIssue(e.target.checked)} />
-                Package condition issue
-              </label>
-              <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={submitFeedback}>
-                Save Feedback
-              </button>
+              {order.returnDepositFeedback && !returnFeedbackEditing ? (
+                <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-3">
+                  <p className="whitespace-pre-wrap text-sm">{order.returnDepositFeedback.feedback || "—"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {order.returnDepositFeedback.conditionIssue
+                      ? "Package condition issue reported."
+                      : "No package condition issue."}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted"
+                    onClick={() => setReturnFeedbackEditing(true)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    Edit
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    className="min-h-24 w-full rounded-md border px-3 py-2"
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    placeholder="Describe return/deposit condition..."
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={conditionIssue} onChange={(e) => setConditionIssue(e.target.checked)} />
+                    Package condition issue
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => void submitFeedback()}>
+                      Save Feedback
+                    </button>
+                    {order.returnDepositFeedback && returnFeedbackEditing && (
+                      <button
+                        type="button"
+                        className="rounded-md border border-transparent px-3 py-2 text-sm text-muted-foreground hover:bg-muted"
+                        onClick={() => {
+                          setReturnFeedbackEditing(false);
+                          setFeedback(order.returnDepositFeedback?.feedback || "");
+                          setConditionIssue(!!order.returnDepositFeedback?.conditionIssue);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </section>
