@@ -122,6 +122,18 @@ export async function emitDepartmentNotification(
       payload?.decision === "APPROVE"
         ? "Your budget request has been approved."
         : "Your budget request has been rejected.";
+  } else if (type === "COMPANY_FINANCE_ADJUSTED") {
+    const amt = Number((payload as { amountCoins?: unknown }).amountCoins ?? 0);
+    const after = Number((payload as { balanceAfter?: unknown }).balanceAfter ?? 0);
+    const r = String((payload as { reason?: string }).reason || "").trim();
+    const signed = Number.isFinite(amt) ? amt.toFixed(2) : "?";
+    const afterStr = Number.isFinite(after) ? after.toFixed(2) : "?";
+    mappedType = amt >= 0 ? "WALLET_TOPUP_SUCCESS" : "ORDER_PAYMENT_DEDUCTED";
+    title = amt >= 0 ? "Coins added to company wallet" : "Coins withdrawn from company wallet";
+    body =
+      amt >= 0
+        ? `Staff added ${signed} coins.${r ? ` Note: ${r.slice(0, 200)}${r.length > 200 ? "…" : ""}` : ""} Balance: ${afterStr}.`
+        : `Staff withdrew ${Math.abs(Number(amt)).toFixed(2)} coins.${r ? ` Note: ${r.slice(0, 200)}${r.length > 200 ? "…" : ""}` : ""} Balance: ${afterStr}.`;
   } else if (type === "REFUND_REQUEST_CREATED") {
     mappedType = "REFUND_PROCESSED";
     title = "Refund request created";
@@ -148,15 +160,19 @@ export async function emitDepartmentNotification(
     ? "RefundRequest"
     : type.includes("SCHEDULED_BUDGET")
       ? "ScheduledBudgetTransfer"
-      : type === "BUDGET_RECALL_FROM_COMPANY_DEPT"
+      : type === "BUDGET_RECALL_FROM_COMPANY_DEPT" || type === "COMPANY_FINANCE_ADJUSTED"
         ? "CompanyWallet"
         : "BudgetRequest";
+  const relatedEntityId =
+    type === "COMPANY_FINANCE_ADJUSTED"
+      ? String((payload as { companyId?: string }).companyId || targetUserId)
+      : scheduleId ?? requestId ?? null;
   const jsonBody = JSON.stringify({
     type: mappedType,
     title,
     body,
     relatedEntityType,
-    relatedEntityId: scheduleId ?? requestId ?? null,
+    relatedEntityId,
     groupKey: inferredGroupKey,
     targetUserId,
   });
@@ -169,7 +185,7 @@ export async function emitDepartmentNotification(
         title,
         body,
         relatedEntityType,
-        relatedEntityId: scheduleId ?? requestId ?? null,
+        relatedEntityId,
         groupKey: inferredGroupKey ?? null,
       });
     } catch {

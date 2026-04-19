@@ -11,7 +11,7 @@ import {
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const navItems = [
+const allNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/orders", label: "Orders", icon: Package },
   { href: "/dashboard/disputes", label: "Disputes", icon: AlertTriangle },
@@ -22,7 +22,7 @@ const navItems = [
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/delivery-companies", label: "Delivery Companies", icon: Truck },
   { href: "/dashboard/delivery-companies/refunds", label: "Company Refund Approvals", icon: DollarSign },
-  { href: "/dashboard/delivery-companies/budgets", label: "Company Budget Requests", icon: DollarSign },
+  { href: "/dashboard/delivery-companies/budgets", label: "Company budgets & wallet", icon: DollarSign },
   { href: "/dashboard/order-arrival-conflicts", label: "Arrival incidents", icon: AlertTriangle },
   { href: "/dashboard/support", label: "Support Tickets", icon: MessageSquare },
   { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },
@@ -35,6 +35,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [navItems, setNavItems] = useState(allNavItems);
+  const [panelTitle, setPanelTitle] = useState("Admin Panel");
 
   // Session security: if sessionStorage flag is missing (window was closed), force re-auth
   useEffect(() => {
@@ -45,6 +47,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         window.location.href = "/login/admin";
       });
     }
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { role?: string; csRoles?: string[] } | null) => {
+        if (!me || me.role !== "CUSTOMER_SERVICE") {
+          setNavItems(allNavItems);
+          setPanelTitle("Admin Panel");
+          return;
+        }
+        const roles = me.csRoles || [];
+        const canBudgets =
+          roles.includes("MANAGE_COMPANY_FINANCE") && roles.includes("SEE_DELIVERY_COMPANY");
+        const canFinDash = roles.includes("MANAGE_FINANCIAL_REPORTS");
+        const restricted = canBudgets || canFinDash;
+        if (!restricted) {
+          setNavItems(allNavItems);
+          setPanelTitle("Staff Panel");
+          return;
+        }
+        const items: typeof allNavItems = [];
+        if (canFinDash) items.push(allNavItems[0]);
+        if (canBudgets) items.push(allNavItems.find((i) => i.href === "/dashboard/delivery-companies/budgets")!);
+        setNavItems(items.length ? items : allNavItems);
+        setPanelTitle("Customer Service");
+      })
+      .catch(() => {
+        setNavItems(allNavItems);
+        setPanelTitle("Admin Panel");
+      });
   }, []);
 
   async function handleLogout() {
@@ -95,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
-          <h2 className="text-sm font-medium text-muted-foreground">Admin Panel</h2>
+          <h2 className="text-sm font-medium text-muted-foreground">{panelTitle}</h2>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
             <NotificationBell />

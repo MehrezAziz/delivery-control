@@ -9,7 +9,11 @@ import { logCompanyAudit } from "@/lib/company-security";
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    if (auth.role === "CUSTOMER_SERVICE" && !hasCSRole(auth, "MANAGE_DELIVERY_COMPANY")) {
+    if (
+      auth.role === "CUSTOMER_SERVICE" &&
+      !hasCSRole(auth, "MANAGE_DELIVERY_COMPANY") &&
+      !hasCSRole(auth, "MANAGE_COMPANY_FINANCE")
+    ) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
     const { id } = await ctx.params;

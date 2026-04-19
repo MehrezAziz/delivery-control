@@ -35,19 +35,25 @@ async function getCompanyPayload(token: string): Promise<CompanyTokenPayload | n
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get("admin_token")?.value;
 
-  // Protect /dashboard routes — admin only
+  // Protect /dashboard routes — admin only, except CS with explicit roles (see below).
   if (req.nextUrl.pathname.startsWith("/dashboard")) {
     if (!token) return NextResponse.redirect(new URL("/login", req.url));
     const payload = await getPayload(token);
     if (!payload) return NextResponse.redirect(new URL("/login", req.url));
-    // Customer Service can access /dashboard only when financial-management is explicitly granted.
     if (payload.role !== "ADMIN") {
-      const isFinancialDashboardRoot = req.nextUrl.pathname === "/dashboard";
+      const path = req.nextUrl.pathname;
+      const roles = payload.csRoles || [];
+      const isFinancialDashboardRoot = path === "/dashboard";
       const canViewFinancialDashboard =
+        payload.role === "CUSTOMER_SERVICE" && isFinancialDashboardRoot && roles.includes("MANAGE_FINANCIAL_REPORTS");
+      const canCompanyFinance =
         payload.role === "CUSTOMER_SERVICE" &&
-        isFinancialDashboardRoot &&
-        (payload.csRoles || []).includes("MANAGE_FINANCIAL_REPORTS");
-      if (!canViewFinancialDashboard) return NextResponse.redirect(new URL("/login", req.url));
+        path.startsWith("/dashboard/delivery-companies/budgets") &&
+        roles.includes("MANAGE_COMPANY_FINANCE") &&
+        roles.includes("SEE_DELIVERY_COMPANY");
+      if (!canViewFinancialDashboard && !canCompanyFinance) {
+        return NextResponse.redirect(new URL("/login", req.url));
+      }
     }
     return NextResponse.next();
   }
