@@ -4,6 +4,16 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
+import {
+  Camera,
+  CheckCircle2,
+  Clock,
+  MessageCircle,
+  Package,
+  PanelRightClose,
+  Truck,
+  User,
+} from "lucide-react";
 
 type Order = {
   id: string;
@@ -44,18 +54,30 @@ type ChatRoomDto = {
   messages: ChatMessage[];
 } | null;
 
-/** Timeline includes approval step for company-managed orders */
-const ORDER_FLOW = [
-  "SEARCHING_DRIVER",
-  "PENDING_CUSTOMER_APPROVAL",
-  "DRIVER_ASSIGNED",
-  "DRIVER_ARRIVED",
-  "PICKED_UP",
-  "DELIVERING",
-  "RETURNED",
-  "RETURN_DEPOSIT",
-  "DELIVERED",
+const TIMELINE_BASE: { key: string; label: string; color: string }[] = [
+  { key: "SEARCHING_DRIVER", label: "Searching driver", color: "bg-amber-500" },
+  { key: "PENDING_CUSTOMER_APPROVAL", label: "Customer approval", color: "bg-orange-500" },
+  { key: "DRIVER_ASSIGNED", label: "Driver assigned", color: "bg-sky-500" },
+  { key: "DRIVER_ARRIVED", label: "Arrived", color: "bg-violet-500" },
+  { key: "PICKED_UP", label: "Picked up", color: "bg-orange-600" },
+  { key: "DELIVERING", label: "Delivering", color: "bg-indigo-500" },
 ];
+
+function orderStatusRank(status: string): number {
+  const order = [
+    "SEARCHING_DRIVER",
+    "PENDING_CUSTOMER_APPROVAL",
+    "DRIVER_ASSIGNED",
+    "DRIVER_ARRIVED",
+    "PICKED_UP",
+    "DELIVERING",
+    "DELIVERED",
+    "RETURNED",
+    "RETURN_DEPOSIT",
+  ];
+  const i = order.indexOf(status);
+  return i >= 0 ? i : 0;
+}
 
 function computeCancelRemaining(order: Order | null): number | null {
   if (!order || order.status !== "SEARCHING_DRIVER") return null;
@@ -89,6 +111,7 @@ export default function CompanyOrderDetailsPage() {
   const prevChatMessageLenRef = useRef(0);
   const handledChatQueryRef = useRef(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
 
   /** Scroll message list internally, then align the composer to the bottom of the viewport. Never use scrollIntoView on message nodes — it scrolls the page to the last bubble and hides the input. */
   const scrollChatIntoView = useCallback((opts?: { focusInput?: boolean }) => {
@@ -267,10 +290,39 @@ export default function CompanyOrderDetailsPage() {
     };
   }, [params.id, loadOrder, loadChat]);
 
-  const currentStep = useMemo(() => {
-    const idx = ORDER_FLOW.indexOf(order?.status || "");
-    return idx >= 0 ? idx : 0;
+  const timelineSteps = useMemo(() => {
+    const st = order?.status || "";
+    const base = [...TIMELINE_BASE];
+    if (st === "DELIVERED") {
+      return [...base, { key: "DELIVERED", label: "Delivered", color: "bg-emerald-500" }];
+    }
+    if (st === "RETURNED") {
+      return [...base, { key: "RETURNED", label: "Returned", color: "bg-rose-500" }];
+    }
+    if (st === "RETURN_DEPOSIT") {
+      return [
+        ...base,
+        { key: "RETURNED", label: "Returned", color: "bg-rose-500" },
+        { key: "RETURN_DEPOSIT", label: "Return deposit", color: "bg-fuchsia-600" },
+      ];
+    }
+    if (["CANCELLED", "REFUNDED", "DISPUTED"].includes(st)) {
+      return base;
+    }
+    if (orderStatusRank(st) <= orderStatusRank("DELIVERING")) {
+      return [...base, { key: "OUTCOME", label: "Delivered or returned", color: "bg-slate-400" }];
+    }
+    return [...base, { key: "DELIVERED", label: "Delivered", color: "bg-emerald-500" }];
   }, [order?.status]);
+
+  const stepDone = (stepKey: string) => {
+    const st = order?.status || "";
+    if (stepKey === "OUTCOME") return false;
+    if (stepKey === "DELIVERED") return st === "DELIVERED";
+    if (stepKey === "RETURNED") return st === "RETURNED" || st === "RETURN_DEPOSIT";
+    if (stepKey === "RETURN_DEPOSIT") return st === "RETURN_DEPOSIT";
+    return orderStatusRank(st) >= orderStatusRank(stepKey);
+  };
 
   const submitFeedback = async () => {
     const orderId = String(params.id);
@@ -347,8 +399,11 @@ export default function CompanyOrderDetailsPage() {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const chatDisabled = chatRoom && (chatRoom.status !== "ACTIVE" || order.status === "DELIVERED");
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+      <div className="min-w-0 flex-1 space-y-6">
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
       <section className="rounded-xl border bg-gradient-to-br from-background to-muted/30 p-5 shadow-sm">
         <h1 className="text-xl font-semibold">Order {order.id}</h1>
@@ -389,33 +444,36 @@ export default function CompanyOrderDetailsPage() {
         )}
       </section>
 
-      <section className="rounded-xl border p-5">
-        <h2 className="mb-4 text-lg font-semibold">Timeline</h2>
+      <section className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50/80 to-background p-5 shadow-sm dark:border-slate-800 dark:from-slate-950/40">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <Clock className="h-5 w-5 text-sky-600" aria-hidden />
+          Order timeline
+        </h2>
         <div className="overflow-x-auto pb-2">
-          <div className="relative min-w-[640px] px-2 pt-6">
-            <div className="absolute left-4 right-4 top-7 h-0.5 bg-border" aria-hidden />
-            <div className="relative flex justify-between">
-              {ORDER_FLOW.map((s, idx) => {
-                const done = idx <= currentStep;
-                const label = s.replace(/_/g, " ");
+          <div className="relative min-w-[min(100%,720px)] px-1 pt-4">
+            <div
+              className="absolute left-6 right-6 top-[18px] h-1 rounded-full bg-gradient-to-r from-slate-200 via-slate-200 to-slate-100 dark:from-slate-700 dark:via-slate-700 dark:to-slate-800"
+              aria-hidden
+            />
+            <div className="relative flex justify-between gap-1">
+              {timelineSteps.map((step, idx) => {
+                const done = stepDone(step.key);
                 return (
-                  <div key={s} className="flex w-0 flex-1 flex-col items-center gap-2">
+                  <div key={`${step.key}-${idx}`} className="flex w-0 min-w-[4.5rem] flex-1 flex-col items-center gap-2">
                     <div
-                      className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-semibold tabular-nums shadow-sm ${
-                        done
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground/35 bg-background text-muted-foreground"
+                      className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums text-white shadow-md ring-2 ring-white dark:ring-background ${
+                        done ? step.color : "bg-slate-300 dark:bg-slate-600"
                       }`}
-                      title={s}
+                      title={step.key}
                     >
-                      {idx + 1}
+                      {done ? <CheckCircle2 className="h-5 w-5 text-white" strokeWidth={2.5} /> : idx + 1}
                     </div>
                     <span
-                      className={`max-w-[5.5rem] text-center text-[10px] leading-tight ${
-                        done ? "font-medium text-foreground" : "text-muted-foreground"
+                      className={`max-w-[6rem] text-center text-[10px] font-medium leading-tight ${
+                        done ? "text-foreground" : "text-muted-foreground"
                       }`}
                     >
-                      {label}
+                      {step.label}
                     </span>
                   </div>
                 );
@@ -425,109 +483,83 @@ export default function CompanyOrderDetailsPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border p-5">
-        <h2 className="mb-3 text-lg font-semibold">Driver Info</h2>
-        <p className="text-sm">Driver ID: {order.driverAssignment?.driverId || "-"}</p>
-        <p className="text-sm">Arrived: {order.driverAssignment?.arrivedAt || "-"}</p>
-        <p className="text-sm">Picked Up: {order.driverAssignment?.pickedUpAt || "-"}</p>
-        <p className="text-sm">Delivered: {order.driverAssignment?.deliveredAt || "-"}</p>
-        <p className="text-sm">Proof 1: {order.driverAssignment?.image1Proof ? "Uploaded" : "Missing"}</p>
-        <p className="text-sm">Proof 2: {order.driverAssignment?.image2Proof ? "Uploaded" : "Optional"}</p>
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm dark:border-slate-800">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-indigo-50/50 px-5 py-3 dark:border-slate-800 dark:from-sky-950/30 dark:to-indigo-950/20">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <Truck className="h-5 w-5 text-sky-600" aria-hidden />
+            Driver
+          </h2>
+        </div>
+        <div className="space-y-4 p-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
+              <User className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Driver ID</p>
+                <p className="font-mono text-sm font-semibold">{order.driverAssignment?.driverId || "—"}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
+              <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Arrived</p>
+                <p className="text-sm">{order.driverAssignment?.arrivedAt || "—"}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
+              <Package className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Picked up</p>
+                <p className="text-sm">{order.driverAssignment?.pickedUpAt || "—"}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-lg border border-slate-100 bg-muted/30 p-3 dark:border-slate-800">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivered</p>
+                <p className="text-sm">{order.driverAssignment?.deliveredAt || "—"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                order.driverAssignment?.image1Proof
+                  ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+                  : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+              }`}
+            >
+              <Camera className="h-3.5 w-3.5" />
+              Proof 1 {order.driverAssignment?.image1Proof ? "uploaded" : "required"}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+              <Camera className="h-3.5 w-3.5" />
+              Proof 2 {order.driverAssignment?.image2Proof ? "uploaded" : "optional"}
+            </span>
+          </div>
         {(order.status === "PENDING_CUSTOMER_APPROVAL" ||
           order.status === "DRIVER_ASSIGNED" ||
           order.status === "DRIVER_ARRIVED") && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-2 border-t border-dashed pt-4">
             {order.status === "PENDING_CUSTOMER_APPROVAL" && (
-              <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={approveDriver}>
+              <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground" onClick={approveDriver}>
                 Accept Driver
               </button>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 className="w-full rounded-md border px-3 py-2 text-sm"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="Rejection reason (required if driver arrived)"
               />
-              <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={rejectDriver}>
+              <button type="button" className="rounded-md border px-3 py-2 text-sm whitespace-nowrap" onClick={rejectDriver}>
                 Reject Driver
               </button>
             </div>
           </div>
         )}
-      </section>
-
-      <section ref={chatSectionRef} className="rounded-xl border p-5">
-        <h2 className="mb-3 text-lg font-semibold">Chat with Driver</h2>
-        {!chatRoom ? (
-          <p className="text-sm text-muted-foreground">No active chat room yet.</p>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Driver: {chatRoom.driver?.name || "-"} | Room: {chatRoom.status}
-            </p>
-            <div
-              ref={chatScrollRef}
-              className="max-h-80 space-y-2 overflow-y-auto rounded-lg border bg-muted/20 p-3"
-              onScroll={() => {
-                const el = chatScrollRef.current;
-                if (!el) return;
-                const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
-                setIsNearBottom(remaining < 80);
-              }}
-            >
-              {chatRoom.messages.map((m) => {
-                const isCompany = m.senderType === "CUSTOMER";
-                return (
-                  <div key={m.id} className={`flex w-full ${isCompany ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[min(100%,28rem)] rounded-2xl px-3 py-2 text-sm shadow-sm ${
-                        isCompany
-                          ? "bg-primary text-primary-foreground rounded-br-md"
-                          : "bg-card border rounded-bl-md"
-                      }`}
-                    >
-                      <p className={`text-[11px] ${isCompany ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                        {m.senderName} ({isCompany ? "Company" : "Driver"})
-                      </p>
-                      <p className="whitespace-pre-wrap break-words">{m.content}</p>
-                    </div>
-                  </div>
-                );
-              })}
-              {chatRoom.messages.length === 0 && (
-                <p className="text-sm text-muted-foreground">No messages yet.</p>
-              )}
-            </div>
-            <div ref={chatComposerRef} className="flex gap-2 scroll-mt-4">
-              <input
-                ref={chatInputRef}
-                className="w-full rounded-md border px-3 py-2 text-sm"
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                disabled={chatRoom.status !== "ACTIVE" || order.status === "DELIVERED"}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendChatMessage();
-                  }
-                }}
-                placeholder="Type your message..."
-              />
-              <button
-                type="button"
-                className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
-                onClick={sendChatMessage}
-                disabled={chatRoom.status !== "ACTIVE" || order.status === "DELIVERED"}
-              >
-                Send
-              </button>
-            </div>
-            {(chatRoom.status !== "ACTIVE" || order.status === "DELIVERED") && (
-              <p className="text-xs text-muted-foreground">Chat room is closed for completed delivery.</p>
-            )}
-          </div>
-        )}
+        </div>
       </section>
 
       {(order.status === "RETURNED" || order.status === "RETURN_DEPOSIT") && (
@@ -555,6 +587,114 @@ export default function CompanyOrderDetailsPage() {
           )}
         </section>
       )}
+      </div>
+
+      <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:w-[380px] xl:self-start">
+        {chatCollapsed ? (
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition hover:bg-muted/50 xl:flex-col xl:py-6"
+            onClick={() => setChatCollapsed(false)}
+          >
+            <span className="flex items-center gap-2 font-semibold">
+              <MessageCircle className="h-5 w-5 text-sky-600" />
+              Chat with driver
+            </span>
+            <span className="text-xs text-muted-foreground">Click to open</span>
+          </button>
+        ) : (
+          <section
+            ref={chatSectionRef}
+            className="flex max-h-[min(78vh,720px)] flex-col overflow-hidden rounded-xl border bg-card shadow-md"
+          >
+            <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <MessageCircle className="h-4 w-4" />
+                Chat with driver
+              </h2>
+              <button
+                type="button"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Minimize chat"
+                onClick={() => setChatCollapsed(true)}
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </button>
+            </div>
+            {!chatRoom ? (
+              <p className="p-4 text-sm text-muted-foreground">No active chat room yet.</p>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <p className="border-b px-3 py-2 text-xs text-muted-foreground">
+                  {chatRoom.driver?.name || "Driver"} · {chatRoom.status}
+                </p>
+                <div
+                  ref={chatScrollRef}
+                  className="min-h-[200px] flex-1 space-y-2 overflow-y-auto p-3"
+                  onScroll={() => {
+                    const el = chatScrollRef.current;
+                    if (!el) return;
+                    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+                    setIsNearBottom(remaining < 80);
+                  }}
+                >
+                  {chatRoom.messages.map((m) => {
+                    const isCompany = m.senderType === "CUSTOMER";
+                    return (
+                      <div key={m.id} className={`flex w-full ${isCompany ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`max-w-[min(100%,17rem)] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                            isCompany
+                              ? "rounded-br-md bg-primary text-primary-foreground"
+                              : "rounded-bl-md border bg-card"
+                          }`}
+                        >
+                          <p
+                            className={`text-[11px] ${isCompany ? "text-primary-foreground/80" : "text-muted-foreground"}`}
+                          >
+                            {m.senderName} ({isCompany ? "Company" : "Driver"})
+                          </p>
+                          <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {chatRoom.messages.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No messages yet.</p>
+                  )}
+                </div>
+                <div ref={chatComposerRef} className="flex gap-2 border-t p-3">
+                  <input
+                    ref={chatInputRef}
+                    className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+                    value={chatText}
+                    onChange={(e) => setChatText(e.target.value)}
+                    disabled={!!chatDisabled}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void sendChatMessage();
+                      }
+                    }}
+                    placeholder="Type your message..."
+                  />
+                  <button
+                    type="button"
+                    className="rounded-md border px-3 py-2 text-sm disabled:opacity-50"
+                    onClick={sendChatMessage}
+                    disabled={!!chatDisabled}
+                  >
+                    Send
+                  </button>
+                </div>
+                {chatDisabled && (
+                  <p className="px-3 pb-3 text-xs text-muted-foreground">Chat is closed for this order.</p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+      </aside>
     </div>
   );
 }

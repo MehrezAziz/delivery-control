@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { MessageSquare, Pencil } from "lucide-react";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
 
@@ -98,6 +98,25 @@ type GeoTree = {
   }>;
 };
 
+function orderStatusBadgeClass(status: string): string {
+  const map: Record<string, string> = {
+    DRAFT: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200",
+    SEARCHING_DRIVER: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+    PENDING_CUSTOMER_APPROVAL: "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200",
+    DRIVER_ASSIGNED: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
+    DRIVER_ARRIVED: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-200",
+    PICKED_UP: "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200",
+    DELIVERING: "bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200",
+    DELIVERED: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+    RETURNED: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200",
+    RETURN_DEPOSIT: "bg-fuchsia-100 text-fuchsia-900 dark:bg-fuchsia-950 dark:text-fuchsia-200",
+    CANCELLED: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
+    DISPUTED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+    REFUNDED: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
+  };
+  return map[status] || "bg-muted text-foreground";
+}
+
 function formatSearchingRemain(o: CompanyOrder): string {
   if (o.status !== "SEARCHING_DRIVER") return "";
   const base =
@@ -166,6 +185,9 @@ function CompanyOrdersPageContent() {
   const [feedbackText, setFeedbackText] = useState<Record<string, string>>({});
   const [feedbackConditionIssue, setFeedbackConditionIssue] = useState<Record<string, boolean>>({});
   const [addDelayMinutesByOrder, setAddDelayMinutesByOrder] = useState<Record<string, string>>({});
+  /** Return-flow feedback: panel open per order, edit mode when updating saved feedback */
+  const [returnFeedbackOpen, setReturnFeedbackOpen] = useState<Record<string, boolean>>({});
+  const [returnFeedbackEditing, setReturnFeedbackEditing] = useState<Record<string, boolean>>({});
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   /** From GET /api/company/wallet — department scoped for department accounts, company for MAIN_ADMIN. */
   const [walletAvailableCapacity, setWalletAvailableCapacity] = useState<number | null>(null);
@@ -776,7 +798,14 @@ function CompanyOrdersPageContent() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="mt-4 flex w-full flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                className="rounded-md bg-primary px-4 py-2 text-primary-foreground shadow"
+                onClick={submitOrder}
+              >
+                {editingOrderId ? "Save changes" : "Create Order"}
+              </button>
               {walletAvailableCapacity !== null && (
                 <span className="text-sm text-muted-foreground">
                   Available balance:{" "}
@@ -786,13 +815,6 @@ function CompanyOrdersPageContent() {
                   )}
                 </span>
               )}
-              <button
-                type="button"
-                className="rounded-md bg-primary px-4 py-2 text-primary-foreground shadow"
-                onClick={submitOrder}
-              >
-                {editingOrderId ? "Save changes" : "Create Order"}
-              </button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               coins required to place this order: Total + 50% = {money(preview.requiredCapacity || 0)}{" "}
@@ -852,7 +874,11 @@ function CompanyOrdersPageContent() {
                 >
                   {order.id}
                 </Link>
-                <span className="shrink-0">{order.status}</span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${orderStatusBadgeClass(order.status)}`}
+                >
+                  {order.status.replace(/_/g, " ")}
+                </span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-3">
                 {order.status === "SEARCHING_DRIVER" && canEditOrders && (
@@ -912,25 +938,99 @@ function CompanyOrdersPageContent() {
                   </div>
                 </div>
               )}
-              {order.status === "RETURN_DEPOSIT" && (
-                <div className="mt-2 space-y-2 rounded-md border p-2">
-                  <textarea
-                    className="min-h-16 w-full rounded-md border px-2 py-1"
-                    value={feedbackText[order.id] ?? order.returnDepositFeedback?.feedback ?? ""}
-                    onChange={(e) => setFeedbackText((prev) => ({ ...prev, [order.id]: e.target.value }))}
-                    placeholder="Return deposit feedback"
-                  />
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={feedbackConditionIssue[order.id] ?? !!order.returnDepositFeedback?.conditionIssue}
-                      onChange={(e) => setFeedbackConditionIssue((prev) => ({ ...prev, [order.id]: e.target.checked }))}
-                    />
-                    Condition issue
-                  </label>
-                  <button className="rounded-md border px-2 py-1 text-xs" onClick={() => submitReturnFeedback(order.id)}>
-                    Save Feedback
-                  </button>
+              {(order.status === "RETURNED" || order.status === "RETURN_DEPOSIT") && canEditOrders && (
+                <div className="mt-2 rounded-md border border-dashed border-primary/30 bg-muted/30 p-2">
+                  {!returnFeedbackOpen[order.id] && !order.returnDepositFeedback && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted"
+                      onClick={() => setReturnFeedbackOpen((p) => ({ ...p, [order.id]: true }))}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                      Add feedback
+                    </button>
+                  )}
+                  {(returnFeedbackOpen[order.id] || order.returnDepositFeedback) && (
+                    <div className="space-y-2">
+                      {order.returnDepositFeedback && !returnFeedbackEditing[order.id] ? (
+                        <div className="space-y-1">
+                          <p className="whitespace-pre-wrap text-sm">{order.returnDepositFeedback.feedback}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Condition issue: {order.returnDepositFeedback.conditionIssue ? "Yes" : "No"}
+                          </p>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary underline"
+                            onClick={() => {
+                              setReturnFeedbackEditing((p) => ({ ...p, [order.id]: true }));
+                              setFeedbackText((prev) => ({
+                                ...prev,
+                                [order.id]: order.returnDepositFeedback?.feedback ?? "",
+                              }));
+                              setFeedbackConditionIssue((prev) => ({
+                                ...prev,
+                                [order.id]: !!order.returnDepositFeedback?.conditionIssue,
+                              }));
+                              setReturnFeedbackOpen((p) => ({ ...p, [order.id]: true }));
+                            }}
+                          >
+                            <Pencil className="h-3 w-3" aria-hidden />
+                            Edit feedback
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <textarea
+                            className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                            value={
+                              feedbackText[order.id] ?? order.returnDepositFeedback?.feedback ?? ""
+                            }
+                            onChange={(e) =>
+                              setFeedbackText((prev) => ({ ...prev, [order.id]: e.target.value }))
+                            }
+                            placeholder="Describe package condition…"
+                          />
+                          <label className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={
+                                feedbackConditionIssue[order.id] ??
+                                !!order.returnDepositFeedback?.conditionIssue
+                              }
+                              onChange={(e) =>
+                                setFeedbackConditionIssue((prev) => ({
+                                  ...prev,
+                                  [order.id]: e.target.checked,
+                                }))
+                              }
+                            />
+                            Package condition issue
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground"
+                              onClick={async () => {
+                                await submitReturnFeedback(order.id);
+                                setReturnFeedbackEditing((p) => ({ ...p, [order.id]: false }));
+                              }}
+                            >
+                              Save feedback
+                            </button>
+                            {!order.returnDepositFeedback && (
+                              <button
+                                type="button"
+                                className="rounded-md border px-2 py-1 text-xs"
+                                onClick={() => setReturnFeedbackOpen((p) => ({ ...p, [order.id]: false }))}
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
