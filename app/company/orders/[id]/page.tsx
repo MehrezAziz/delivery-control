@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
 import {
@@ -15,6 +16,12 @@ import {
   Truck,
   User,
 } from "lucide-react";
+
+type ReturnDepositFeedbackRow = {
+  driverId: string;
+  feedback: string;
+  conditionIssue: boolean;
+};
 
 type Order = {
   id: string;
@@ -49,6 +56,7 @@ type Order = {
     feedback: string;
     conditionIssue: boolean;
   } | null;
+  returnDepositFeedbacks?: ReturnDepositFeedbackRow[];
 };
 
 type ChatMessage = {
@@ -90,6 +98,8 @@ function orderStatusRank(status: string): number {
   const i = order.indexOf(status);
   return i >= 0 ? i : 0;
 }
+
+const TRACKING_LIVE_STATUSES = new Set(["DRIVER_ARRIVED", "PICKED_UP", "DELIVERING"]);
 
 function computeCancelRemaining(order: Order | null): number | null {
   if (!order || order.status !== "SEARCHING_DRIVER") return null;
@@ -165,9 +175,16 @@ export default function CompanyOrderDetailsPage() {
     if (!res.ok) return setMessage(data?.error || "Failed to load order");
     const found = (Array.isArray(data) ? data : []).find((x: Order) => x.id === params.id) || null;
     setOrder(found);
-    if (found?.returnDepositFeedback) {
-      setFeedback(found.returnDepositFeedback.feedback || "");
-      setConditionIssue(!!found.returnDepositFeedback.conditionIssue);
+    const drvId = found?.driverAssignment?.driverId;
+    const list = found?.returnDepositFeedbacks;
+    const matched =
+      drvId && list?.length
+        ? list.find((f: ReturnDepositFeedbackRow) => f.driverId === drvId)
+        : undefined;
+    const effectiveFb = matched ?? found?.returnDepositFeedback ?? null;
+    if (effectiveFb) {
+      setFeedback(effectiveFb.feedback || "");
+      setConditionIssue(!!effectiveFb.conditionIssue);
       setReturnFeedbackEditing(false);
     } else {
       setReturnFeedbackEditing(true);
@@ -191,10 +208,6 @@ export default function CompanyOrderDetailsPage() {
         sessionStorage.removeItem("dc_company_chat_order_id");
       }
     };
-  }, [params.id]);
-
-  useEffect(() => {
-    setReturnFeedbackEditing(true);
   }, [params.id]);
 
   /** Opened from a “new message” notification (?chat=1): show latest messages, composer, and focus the input. */
@@ -424,7 +437,19 @@ export default function CompanyOrderDetailsPage() {
     });
   };
 
+  const effectiveReturnDepositFeedback = useMemo(() => {
+    const drvId = order?.driverAssignment?.driverId;
+    const list = order?.returnDepositFeedbacks;
+    if (drvId && list?.length) {
+      const m = list.find((f) => f.driverId === drvId);
+      if (m) return m;
+    }
+    return order?.returnDepositFeedback ?? null;
+  }, [order]);
+
   if (!order) return <div className="text-sm text-muted-foreground">Loading order details...</div>;
+
+  const trackingLive = Boolean(order.trackingToken && TRACKING_LIVE_STATUSES.has(order.status));
 
   const fmtRemain = (sec: number | null) => {
     if (sec == null) return null;
@@ -449,8 +474,29 @@ export default function CompanyOrderDetailsPage() {
             Price: <span className="font-medium text-foreground">{Number(order.price || 0).toFixed(2)}</span>
           </p>
           <p className="text-sm text-muted-foreground">
-            Tracking: <span className="font-medium text-foreground">{order.trackingToken || "-"}</span>
+            Tracking:{" "}
+            {order.trackingToken ? (
+              trackingLive ? (
+                <Link
+                  href={`/company/orders/${order.id}/track`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {order.trackingToken}
+                </Link>
+              ) : (
+                <span className="font-mono font-medium text-foreground">{order.trackingToken}</span>
+              )
+            ) : (
+              <span className="font-medium text-foreground">—</span>
+            )}
           </p>
+          {order.trackingToken && !trackingLive && (
+            <p className="text-xs text-muted-foreground md:col-span-3">
+              Live map opens when the driver has arrived and is on the way (status: arrived, picked up, or delivering).
+            </p>
+          )}
           {order.status === "SEARCHING_DRIVER" && cancelRemain != null && (
             <p className="text-sm md:col-span-3">
               <span className="text-muted-foreground">Time until auto-cancel if no driver: </span>
@@ -540,6 +586,11 @@ export default function CompanyOrderDetailsPage() {
                   {order.driverAssignment.driver.user?.phone?.trim() || "—"}
                 </span>
               </p>
+              {!order.driverAssignment.driver.performanceMetrics && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Performance statistics are not available yet for this driver (e.g. new account or no completed deliveries).
+                </p>
+              )}
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <p className="text-[11px] uppercase text-muted-foreground">Avg rating</p>
@@ -671,11 +722,11 @@ export default function CompanyOrderDetailsPage() {
           </p>
           {order.status === "RETURN_DEPOSIT" && (
             <div className="mt-3 space-y-2">
-              {order.returnDepositFeedback && !returnFeedbackEditing ? (
+              {effectiveReturnDepositFeedback && !returnFeedbackEditing ? (
                 <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-3">
-                  <p className="whitespace-pre-wrap text-sm">{order.returnDepositFeedback.feedback || "—"}</p>
+                  <p className="whitespace-pre-wrap text-sm">{effectiveReturnDepositFeedback.feedback || "—"}</p>
                   <p className="text-xs text-muted-foreground">
-                    {order.returnDepositFeedback.conditionIssue
+                    {effectiveReturnDepositFeedback.conditionIssue
                       ? "Package condition issue reported."
                       : "No package condition issue."}
                   </p>
@@ -704,14 +755,14 @@ export default function CompanyOrderDetailsPage() {
                     <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => void submitFeedback()}>
                       Save Feedback
                     </button>
-                    {order.returnDepositFeedback && returnFeedbackEditing && (
+                    {effectiveReturnDepositFeedback && returnFeedbackEditing && (
                       <button
                         type="button"
                         className="rounded-md border border-transparent px-3 py-2 text-sm text-muted-foreground hover:bg-muted"
                         onClick={() => {
                           setReturnFeedbackEditing(false);
-                          setFeedback(order.returnDepositFeedback?.feedback || "");
-                          setConditionIssue(!!order.returnDepositFeedback?.conditionIssue);
+                          setFeedback(effectiveReturnDepositFeedback?.feedback || "");
+                          setConditionIssue(!!effectiveReturnDepositFeedback?.conditionIssue);
                         }}
                       >
                         Cancel

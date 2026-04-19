@@ -1665,11 +1665,13 @@ model ActionLog {
 // ============================================
 
 model OrderDriverRejection {
-  id        String   @id @default(uuid())
-  orderId   String   @map("order_id")
-  driverId  String   @map("driver_id")
-  reason    String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id                String    @id @default(uuid())
+  orderId           String    @map("order_id")
+  driverId          String    @map("driver_id")
+  reason            String?
+  driverResponse    String?   @map("driver_response")
+  driverRespondedAt DateTime? @map("driver_responded_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   driver Driver @relation(fields: [driverId], references: [id])

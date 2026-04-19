@@ -42,7 +42,12 @@ type CompanyOrder = {
     delegation?: { governorate?: { id: string }; governorateId?: string };
   } | null;
   returnDepositFeedback?: { id: string; feedback: string; conditionIssue: boolean } | null;
+  returnDepositFeedbacks?: Array<{ driverId: string; feedback: string; conditionIssue: boolean }>;
+  driverAssignment?: { driverId?: string } | null;
+  trackingToken?: string | null;
 };
+
+const TRACKING_LIVE_STATUSES = new Set(["DRIVER_ARRIVED", "PICKED_UP", "DELIVERING"]);
 
 /** Prefer FK on order; fallback: customer is the company proxy customer → delivery company name. */
 function deliveryCompanyDisplayName(order: CompanyOrder): string {
@@ -115,6 +120,16 @@ function orderStatusBadgeClass(status: string): string {
     REFUNDED: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
   };
   return map[status] || "bg-muted text-foreground";
+}
+
+function effectiveReturnDepositFeedbackRow(order: CompanyOrder) {
+  const drvId = order.driverAssignment?.driverId;
+  const list = order.returnDepositFeedbacks;
+  if (drvId && list?.length) {
+    const m = list.find((f) => f.driverId === drvId);
+    if (m) return m;
+  }
+  return order.returnDepositFeedback ?? null;
 }
 
 function formatSearchingRemain(o: CompanyOrder): string {
@@ -906,6 +921,25 @@ function CompanyOrdersPageContent() {
               <p className="text-muted-foreground">
                 Price: {Number(order.price || 0).toFixed(2)}
               </p>
+              {profile?.actorRole &&
+                profile.actorRole !== "MAIN_ADMIN" &&
+                order.trackingToken &&
+                (TRACKING_LIVE_STATUSES.has(order.status) ? (
+                  <p className="mt-1">
+                    <Link
+                      href={`/company/orders/${order.id}/track`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      Open live tracking (new tab) · {order.trackingToken}
+                    </Link>
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tracking code: <span className="font-mono text-foreground">{order.trackingToken}</span> — live map opens in a new tab when status is arrived, picked up, or delivering.
+                  </p>
+                ))}
               {placedByLine && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Placed by:{" "}
@@ -947,7 +981,11 @@ function CompanyOrdersPageContent() {
               )}
               {(order.status === "RETURNED" || order.status === "RETURN_DEPOSIT") && canEditOrders && (
                 <div className="mt-2 rounded-md border border-dashed border-primary/30 bg-muted/30 p-2">
-                  {!returnFeedbackOpen[order.id] && !order.returnDepositFeedback && (
+                  {(() => {
+                    const rowFb = effectiveReturnDepositFeedbackRow(order);
+                    return (
+                      <>
+                  {!returnFeedbackOpen[order.id] && !rowFb && (
                     <button
                       type="button"
                       className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted"
@@ -957,13 +995,13 @@ function CompanyOrdersPageContent() {
                       Add feedback
                     </button>
                   )}
-                  {(returnFeedbackOpen[order.id] || order.returnDepositFeedback) && (
+                  {(returnFeedbackOpen[order.id] || rowFb) && (
                     <div className="space-y-2">
-                      {order.returnDepositFeedback && !returnFeedbackEditing[order.id] ? (
+                      {rowFb && !returnFeedbackEditing[order.id] ? (
                         <div className="space-y-1">
-                          <p className="whitespace-pre-wrap text-sm">{order.returnDepositFeedback.feedback}</p>
+                          <p className="whitespace-pre-wrap text-sm">{rowFb.feedback}</p>
                           <p className="text-xs text-muted-foreground">
-                            Condition issue: {order.returnDepositFeedback.conditionIssue ? "Yes" : "No"}
+                            Condition issue: {rowFb.conditionIssue ? "Yes" : "No"}
                           </p>
                           <button
                             type="button"
@@ -972,11 +1010,11 @@ function CompanyOrdersPageContent() {
                               setReturnFeedbackEditing((p) => ({ ...p, [order.id]: true }));
                               setFeedbackText((prev) => ({
                                 ...prev,
-                                [order.id]: order.returnDepositFeedback?.feedback ?? "",
+                                [order.id]: rowFb.feedback ?? "",
                               }));
                               setFeedbackConditionIssue((prev) => ({
                                 ...prev,
-                                [order.id]: !!order.returnDepositFeedback?.conditionIssue,
+                                [order.id]: !!rowFb.conditionIssue,
                               }));
                               setReturnFeedbackOpen((p) => ({ ...p, [order.id]: true }));
                             }}
@@ -990,7 +1028,7 @@ function CompanyOrdersPageContent() {
                           <textarea
                             className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                             value={
-                              feedbackText[order.id] ?? order.returnDepositFeedback?.feedback ?? ""
+                              feedbackText[order.id] ?? rowFb?.feedback ?? ""
                             }
                             onChange={(e) =>
                               setFeedbackText((prev) => ({ ...prev, [order.id]: e.target.value }))
@@ -1002,7 +1040,7 @@ function CompanyOrdersPageContent() {
                               type="checkbox"
                               checked={
                                 feedbackConditionIssue[order.id] ??
-                                !!order.returnDepositFeedback?.conditionIssue
+                                !!rowFb?.conditionIssue
                               }
                               onChange={(e) =>
                                 setFeedbackConditionIssue((prev) => ({
@@ -1024,7 +1062,7 @@ function CompanyOrdersPageContent() {
                             >
                               Save feedback
                             </button>
-                            {!order.returnDepositFeedback && (
+                            {!rowFb && (
                               <button
                                 type="button"
                                 className="rounded-md border px-2 py-1 text-xs"
@@ -1038,6 +1076,9 @@ function CompanyOrdersPageContent() {
                       )}
                     </div>
                   )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>

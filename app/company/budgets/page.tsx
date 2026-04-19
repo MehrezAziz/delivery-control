@@ -120,6 +120,10 @@ function CompanyBudgetsPageContent() {
   );
   const [recallAccountId, setRecallAccountId] = useState("");
   const [recallAmount, setRecallAmount] = useState("50");
+  const [mainCompanyWallet, setMainCompanyWallet] = useState<{
+    balance: number;
+    availableCapacity: number;
+  } | null>(null);
   const isMain = actorRole === "MAIN_ADMIN";
   const canEditOwnBudgetRequest =
     !isMain && (actorRole === "DEPT_ADMIN" || actorRole === "DEPT_OPERATOR");
@@ -185,15 +189,26 @@ function CompanyBudgetsPageContent() {
       setRequests(Array.isArray(reqs) ? reqs : []);
 
       if (mainUser) {
-        const [ledgerRes, walletsRes] = await Promise.all([
+        const [ledgerRes, walletsRes, walletMainRes] = await Promise.all([
           fetch("/api/company/company-ledger"),
           fetch("/api/company/department-budget-wallets"),
+          fetch("/api/company/wallet"),
         ]);
         setCompanyLedger(ledgerRes.ok ? await ledgerRes.json() : []);
         setDeptWallets(walletsRes.ok ? await walletsRes.json() : []);
+        if (walletMainRes.ok) {
+          const w = await walletMainRes.json();
+          setMainCompanyWallet({
+            balance: Number(w.balance ?? 0),
+            availableCapacity: Number(w.availableCapacity ?? 0),
+          });
+        } else {
+          setMainCompanyWallet(null);
+        }
       } else {
         setCompanyLedger([]);
         setDeptWallets([]);
+        setMainCompanyWallet(null);
       }
     } catch (e: unknown) {
       setMessage(e instanceof Error ? e.message : "Failed to load budgets");
@@ -794,7 +809,6 @@ function CompanyBudgetsPageContent() {
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">POST /api/cron/scheduled-budget-transfers</code> with header{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">Authorization: Bearer $CRON_SECRET</code>.
         </p>
-        {selectedDeptBudgetHint(scheduleAccountId)}
         <div className="grid gap-2 md:grid-cols-4">
           <select
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -938,6 +952,15 @@ function CompanyBudgetsPageContent() {
           Coins are credited to that account&apos;s department budget wallet (child departments only; main department uses the company wallet).
         </p>
         {selectedDeptBudgetHint(transferDepartmentAccountId)}
+        {mainCompanyWallet && (
+          <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Main company wallet (bWallet) · </span>
+            <span className="font-semibold tabular-nums text-foreground">{mainCompanyWallet.balance.toFixed(2)}</span>
+            <span className="text-muted-foreground"> coins balance · </span>
+            <span className="font-semibold tabular-nums text-foreground">{mainCompanyWallet.availableCapacity.toFixed(2)}</span>
+            <span className="text-muted-foreground"> available capacity</span>
+          </p>
+        )}
         <div className="grid gap-2 md:grid-cols-3">
           <select
             className="rounded-md border px-3 py-2"
@@ -965,6 +988,7 @@ function CompanyBudgetsPageContent() {
         <p className="text-xs text-muted-foreground">
           Move coins from a department&apos;s budget wallet back to the company wallet at any time. The department account receives a notification; the company ledger records the return (department budget decreases, company balance increases).
         </p>
+        {selectedDeptBudgetHint(recallAccountId)}
         <div className="grid gap-2 md:grid-cols-3">
           <select
             className="rounded-md border px-3 py-2"

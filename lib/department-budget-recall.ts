@@ -61,7 +61,7 @@ export async function recallDepartmentBudgetWalletToCompany(
       type: "DEPARTMENT_BUDGET_RETURN",
       amount: amountCoins,
       balanceAfter: newCompanyBalance,
-      description: `Recall from department budget (${label}): +${amountCoins.toFixed(2)} to company wallet (equivalent to −${amountCoins.toFixed(2)} from department budget)`,
+      description: `Recall from department budget (${label}) [dept:${departmentId}]: +${amountCoins.toFixed(2)} to company wallet (equivalent to −${amountCoins.toFixed(2)} from department budget)`,
     },
   });
 

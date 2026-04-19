@@ -15,7 +15,12 @@ export async function GET() {
     const list = Array.isArray(data) ? data : [];
     const filtered = isMainDepartmentActor(auth)
       ? list
-      : list.filter((o: any) => (auth.departmentId ? o.deliveryCompanyDepartmentId === auth.departmentId : false));
+      : list.filter((o: any) => {
+          if (!auth.departmentId) return false;
+          if (o.deliveryCompanyDepartmentId === auth.departmentId) return true;
+          const createdDept = o.createdByDepartmentAccount?.department?.id;
+          return createdDept === auth.departmentId;
+        });
     return NextResponse.json(filtered, { status: res.status });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to load orders";
