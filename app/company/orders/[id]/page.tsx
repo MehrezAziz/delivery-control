@@ -311,6 +311,15 @@ export default function CompanyOrderDetailsPage() {
     await loadChat();
   };
 
+  const cancelSearchingOrder = async () => {
+    if (!confirm("Cancel this order and refund the reserved budget? This cannot be undone.")) return;
+    const res = await fetch(`/api/company/orders/${params.id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) return setMessage(data?.error || data?.message || "Failed to cancel order");
+    setMessage("Order cancelled.");
+    router.push("/company/orders");
+  };
+
   const sendChatMessage = async () => {
     const text = chatText.trim();
     if (!text) return;
@@ -362,6 +371,22 @@ export default function CompanyOrderDetailsPage() {
             </p>
           )}
         </div>
+        {order.status === "SEARCHING_DRIVER" && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive hover:bg-destructive/15"
+              onClick={cancelSearchingOrder}
+            >
+              Cancel order (withdraw)
+            </button>
+            <p className="w-full text-xs text-muted-foreground">
+              To edit weight, route, or confirmation delay while still searching, use{" "}
+              <code className="rounded bg-muted px-1">PATCH /api/company/orders/{"{id}"}</code> with the same JSON body
+              as create order (preview recommended first).
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="rounded-xl border p-5">

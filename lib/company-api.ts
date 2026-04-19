@@ -11,6 +11,9 @@ export async function companyBackendFetch(path: string, init?: RequestInit) {
   headers.set("Authorization", `Bearer ${auth.apiKey}`);
   headers.set("X-Company-Actor-Role", auth.actorRole || "MAIN_ADMIN");
   if (auth.departmentId) headers.set("X-Company-Department-Id", auth.departmentId);
+  if (auth.departmentAccountId) {
+    headers.set("X-Company-Department-Account-Id", auth.departmentAccountId);
+  }
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }

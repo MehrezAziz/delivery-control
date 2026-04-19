@@ -1,13 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Pencil } from "lucide-react";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
 
 type CompanyOrder = {
   id: string;
   status: string;
+  deliveryCompany?: { id: string; name: string; legalName?: string | null } | null;
+  customer?: {
+    id: string;
+    deliveryCompanyProxyFor?: { id: string; name: string; legalName?: string | null } | null;
+  } | null;
+  deliveryCompanyDepartment?: { id: string; label: string } | null;
+  createdByDepartmentAccount?: {
+    id: string;
+    email: string;
+    role: string;
+    department?: { id: string; label: string } | null;
+  } | null;
   price?: string | number | null;
   cancelAfterMinutes?: number | null;
   cancelRemainingSeconds?: number | null;
@@ -15,8 +29,50 @@ type CompanyOrder = {
   createdAt: string;
   sourceType?: string;
   description?: string | null;
+  weight?: number;
+  localPickupOnly?: boolean;
+  customerExtraAmount?: number | null;
+  deliveryCompanyDepartmentId?: string | null;
+  pickupAddress?: {
+    id: string;
+    delegation?: { governorate?: { id: string }; governorateId?: string };
+  } | null;
+  dropoffAddress?: {
+    delegationId?: string;
+    delegation?: { governorate?: { id: string }; governorateId?: string };
+  } | null;
   returnDepositFeedback?: { id: string; feedback: string; conditionIssue: boolean } | null;
 };
+
+/** Prefer FK on order; fallback: customer is the company proxy customer → delivery company name. */
+function deliveryCompanyDisplayName(order: CompanyOrder): string {
+  const dc = order.deliveryCompany;
+  if (dc) {
+    const n = (dc.legalName?.trim() || dc.name?.trim()) ?? "";
+    if (n) return n;
+  }
+  const viaProxy = order.customer?.deliveryCompanyProxyFor;
+  if (viaProxy) {
+    return (viaProxy.legalName?.trim() || viaProxy.name?.trim()) || "—";
+  }
+  return "—";
+}
+
+/** MAIN_ADMIN list only; omits generic fallbacks (no “main company / API” line). */
+function formatOrderPlacedBy(order: CompanyOrder): string | null {
+  const acc = order.createdByDepartmentAccount;
+  if (acc) {
+    const deptName =
+      acc.department?.label?.trim() || order.deliveryCompanyDepartment?.label?.trim();
+    return deptName
+      ? `${deptName} — ${acc.email} (${acc.role})`
+      : `${acc.email} (${acc.role})`;
+  }
+  if (order.deliveryCompanyDepartment?.label) {
+    return `Department “${order.deliveryCompanyDepartment.label}”`;
+  }
+  return null;
+}
 
 type CompanyProfile = {
   addresses?: Array<{
@@ -64,7 +120,8 @@ function FieldLine({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-export default function CompanyOrdersPage() {
+function CompanyOrdersPageContent() {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<CompanyOrder[]>([]);
   const [listTick, setListTick] = useState(0);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
@@ -109,7 +166,13 @@ export default function CompanyOrdersPage() {
   const [feedbackText, setFeedbackText] = useState<Record<string, string>>({});
   const [feedbackConditionIssue, setFeedbackConditionIssue] = useState<Record<string, boolean>>({});
   const [addDelayMinutesByOrder, setAddDelayMinutesByOrder] = useState<Record<string, string>>({});
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  /** From GET /api/company/wallet — department scoped for department accounts, company for MAIN_ADMIN. */
+  const [walletAvailableCapacity, setWalletAvailableCapacity] = useState<number | null>(null);
+  const editFromUrlApplied = useRef<string | null>(null);
   const isChildDepartment = !!profile?.actorRole && profile.actorRole !== "MAIN_ADMIN";
+  const canEditOrders =
+    !!profile?.actorRole && ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR"].includes(profile.actorRole);
   const selectedPickupAddress = (profile?.addresses || []).find((a) => a.id === pickupAddressId) || null;
   const pickupCountry = geo.countries.find(
     (c) =>
@@ -125,10 +188,23 @@ export default function CompanyOrdersPage() {
   const load = async (keepLoading = false) => {
     if (!keepLoading) setLoading(true);
     try {
-      const [profileRes, ordersRes] = await Promise.all([
+      const [profileRes, ordersRes, walletRes] = await Promise.all([
         fetch("/api/company/profile").then((x) => x.json()),
         fetch("/api/company/orders").then((x) => x.json()),
+        fetch("/api/company/wallet"),
       ]);
+      let capacity: number | null = null;
+      try {
+        if (walletRes.ok) {
+          const wd = await walletRes.json();
+          if (typeof wd.availableCapacity === "number") {
+            capacity = Number(wd.availableCapacity);
+          }
+        }
+      } catch {
+        capacity = null;
+      }
+      setWalletAvailableCapacity(capacity);
       const geoRes = await fetch("/api/company/geo").then((x) => x.json()).catch(() => ({ countries: [] }));
       setProfile(profileRes);
       setGeo({ countries: Array.isArray(geoRes?.countries) ? geoRes.countries : [] });
@@ -287,12 +363,91 @@ export default function CompanyOrdersPage() {
     }
   };
 
-  const createOrder = async () => {
+  const exitEditMode = useCallback(() => {
+    setEditingOrderId(null);
+    setPreview(null);
+    setPreviewSignature(null);
+    editFromUrlApplied.current = null;
+    if (typeof window !== "undefined") {
+      const u = new URL(window.location.href);
+      if (u.searchParams.has("edit")) {
+        u.searchParams.delete("edit");
+        window.history.replaceState({}, "", u.pathname + (u.search ? u.search : ""));
+      }
+    }
+  }, []);
+
+  const applyOrderToForm = useCallback((order: CompanyOrder) => {
+    setEditingOrderId(order.id);
+    setMessage(null);
+    setWeight(String(order.weight ?? 1));
+    setMaxConfirmationDelayMinutes(String(order.cancelAfterMinutes ?? 15));
+    setExtraAmount(String(order.customerExtraAmount ?? 0));
+    setLocalPickupOnly(!!order.localPickupOnly);
+    const desc = String(order.description || "");
+    const cm = desc.match(/Customer:\s*([^\n]+)/);
+    const pm = desc.match(/Phone:\s*([^\n]+)/);
+    const dst = desc.match(/Destination street:\s*([^\n]+)/);
+    if (cm) setCustomerName(cm[1].trim());
+    if (pm) setCustomerPhone(pm[1].trim());
+    else setCustomerPhone("");
+    if (dst) setDropoffStreet(dst[1].trim());
+    else setDropoffStreet("");
+    const userDesc = desc
+      .split("\n")
+      .filter(
+        (l) =>
+          !/^Customer:/.test(l) &&
+          !/^Phone:/.test(l) &&
+          !/^Destination street:/.test(l) &&
+          !/^Source:/.test(l),
+      )
+      .join("\n")
+      .trim();
+    setDescription(userDesc);
+    const pickId = order.pickupAddress?.id;
+    const deptId = order.deliveryCompanyDepartmentId;
+    if (pickId) setPickupAddressId(pickId);
+    else if (deptId) setPickupAddressId(deptId);
+    const drop = order.dropoffAddress;
+    const govId = drop?.delegation?.governorate?.id || drop?.delegation?.governorateId;
+    if (govId) setDropoffGovernorateId(govId);
+    if (drop?.delegationId) setDropoffDelegationId(drop.delegationId);
+    setPreview(null);
+    setPreviewSignature(null);
+  }, []);
+
+  useEffect(() => {
+    const id = searchParams.get("edit");
+    if (!id || !canEditOrders || !orders.length) return;
+    if (editFromUrlApplied.current === id) return;
+    const found = orders.find((o) => o.id === id);
+    if (found?.status === "SEARCHING_DRIVER") {
+      applyOrderToForm(found);
+      editFromUrlApplied.current = id;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [searchParams, orders, canEditOrders, applyOrderToForm]);
+
+  const submitOrder = async () => {
     setMessage(null);
     try {
       const currentPayload = payload();
       if (!preview || previewSignature !== JSON.stringify(currentPayload)) {
         throw new Error("Preview is required before create. Please run preview after your latest changes.");
+      }
+      if (editingOrderId) {
+        const res = await fetch(`/api/company/orders/${editingOrderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentPayload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || data?.message || "Order update failed");
+        setMessage("Order updated successfully.");
+        exitEditMode();
+        await load(true);
+        return;
       }
       const idemKey = buildIdempotencyKey("company-orders-create", currentPayload);
       const res = await fetch("/api/company/orders", {
@@ -311,7 +466,7 @@ export default function CompanyOrdersPage() {
       setDropoffStreet("");
       await load(true);
     } catch (e: unknown) {
-      setMessage(e instanceof Error ? e.message : "Order creation failed");
+      setMessage(e instanceof Error ? e.message : "Order failed");
     }
   };
 
@@ -343,7 +498,9 @@ export default function CompanyOrdersPage() {
   const addConfirmationDelay = async (orderId: string) => {
     setMessage(null);
     try {
-      const minutesToAdd = Number(addDelayMinutesByOrder[orderId] || "0");
+      /** Default UI shows 15 but state may be unset until the user edits the input — treat default as 15. */
+      const raw = addDelayMinutesByOrder[orderId];
+      const minutesToAdd = Number((raw !== undefined && raw !== "" ? raw : "15").trim());
       if (!Number.isFinite(minutesToAdd) || minutesToAdd < 1) {
         throw new Error("Please enter minutes to add (minimum 1).");
       }
@@ -372,12 +529,18 @@ export default function CompanyOrdersPage() {
 
   const exportCsv = () => {
     const lines = [
-      "id,status,price,sourceType,description,createdAt",
+      "id,status,deliveryCompanyName,price,placedByDeptLabel,placedByEmail,placedByRole,sourceType,description,createdAt",
       ...filteredOrders.map((o) =>
         [
           o.id,
           o.status,
+          deliveryCompanyDisplayName(o),
           Number(o.price || 0).toFixed(2),
+          o.createdByDepartmentAccount?.department?.label ||
+            o.deliveryCompanyDepartment?.label ||
+            "",
+          o.createdByDepartmentAccount?.email || "",
+          o.createdByDepartmentAccount?.role || "",
           o.sourceType || "",
           (o.description || "").replace(/"/g, '""'),
           o.createdAt,
@@ -400,7 +563,20 @@ export default function CompanyOrdersPage() {
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
 
       <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:to-slate-900">
-        <h2 className="mb-3 text-lg font-semibold">Create Delivery Order</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">
+            {editingOrderId ? `Edit order (${editingOrderId.slice(0, 8)}…)` : "Create Delivery Order"}
+          </h2>
+          {editingOrderId && (
+            <button
+              type="button"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+              onClick={exitEditMode}
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
           <FieldLine label="Source department (pickup)">
             <select
@@ -600,9 +776,24 @@ export default function CompanyOrdersPage() {
                 </div>
               </div>
             </div>
-            <button className="mt-4 rounded-md bg-primary px-4 py-2 text-primary-foreground shadow" onClick={createOrder}>
-              Create Order
-            </button>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {walletAvailableCapacity !== null && (
+                <span className="text-sm text-muted-foreground">
+                  Available balance:{" "}
+                  <span className="font-semibold text-foreground">{money(walletAvailableCapacity)}</span>
+                  {isChildDepartment && (
+                    <span className="ml-1 text-xs">(this department account)</span>
+                  )}
+                </span>
+              )}
+              <button
+                type="button"
+                className="rounded-md bg-primary px-4 py-2 text-primary-foreground shadow"
+                onClick={submitOrder}
+              >
+                {editingOrderId ? "Save changes" : "Create Order"}
+              </button>
+            </div>
             <p className="mt-2 text-xs text-muted-foreground">
               coins required to place this order: Total + 50% = {money(preview.requiredCapacity || 0)}{" "}
               <button
@@ -623,7 +814,8 @@ export default function CompanyOrdersPage() {
           </div>
         )}
         <p className="mt-2 text-xs text-muted-foreground">
-          Preview is mandatory before create. Drivers can identify this as a company order from order source metadata.
+          Preview is mandatory before {editingOrderId ? "saving" : "create"}. Drivers can identify this as a company
+          order from order source metadata.
         </p>
       </section>
 
@@ -647,16 +839,46 @@ export default function CompanyOrdersPage() {
           </button>
         </div>
         <div className="space-y-2">
-          {pagedOrders.map((order) => (
+          {pagedOrders.map((order) => {
+            const placedByLine =
+              profile?.actorRole === "MAIN_ADMIN" ? formatOrderPlacedBy(order) : null;
+            return (
             <div key={order.id} className="rounded-md border p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="font-medium">{order.id}</span>
-                <span>{order.status}</span>
+              <div className="flex justify-between gap-2">
+                <Link
+                  href={`/company/orders/${order.id}`}
+                  className="break-all font-medium text-primary underline-offset-2 hover:underline"
+                  title="View order details"
+                >
+                  {order.id}
+                </Link>
+                <span className="shrink-0">{order.status}</span>
               </div>
-              <Link href={`/company/orders/${order.id}`} className="text-xs underline">Open details</Link>
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                {order.status === "SEARCHING_DRIVER" && canEditOrders && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+                    title="Edit order (still searching for a driver)"
+                    onClick={() => {
+                      applyOrderToForm(order);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    Edit
+                  </button>
+                )}
+              </div>
               <p className="text-muted-foreground">
-                Price: {Number(order.price || 0).toFixed(2)} | Source: {order.sourceType || "-"}
+                Price: {Number(order.price || 0).toFixed(2)}
               </p>
+              {placedByLine && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Placed by:{" "}
+                  <span className="font-medium text-foreground">{placedByLine}</span>
+                </p>
+              )}
               {order.status === "SEARCHING_DRIVER" && (
                 <div className="mt-2 rounded-md border p-2">
                   <span className="hidden" aria-hidden>
@@ -712,7 +934,8 @@ export default function CompanyOrdersPage() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
           {filteredOrders.length === 0 && <p className="text-sm text-muted-foreground">No orders found.</p>}
         </div>
         {filteredOrders.length > 0 && (
@@ -740,5 +963,13 @@ export default function CompanyOrdersPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function CompanyOrdersPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading orders…</div>}>
+      <CompanyOrdersPageContent />
+    </Suspense>
   );
 }

@@ -12,9 +12,10 @@ export async function POST(
     ensureCompanyRoleAllowed(auth, ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR"]);
     const { id } = await params;
     const bodyObj = await req.json();
-    const body = JSON.stringify({
-      minutesToAdd: Number(bodyObj?.minutesToAdd ?? 0),
-    });
+    const raw = bodyObj?.minutesToAdd;
+    const n = Number(raw !== undefined && raw !== "" ? raw : 15);
+    const minutesToAdd = Number.isFinite(n) && n >= 1 ? n : 15;
+    const body = JSON.stringify({ minutesToAdd });
     const res = await companyBackendFetch(`/orders/${id}/add-confirmation-delay`, {
       method: "POST",
       body,
