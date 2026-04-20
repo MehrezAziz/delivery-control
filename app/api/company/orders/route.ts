@@ -6,6 +6,21 @@ import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { prisma } from "@/lib/prisma";
 import { enforceCompanyRateLimit } from "@/lib/company-rate-limit";
 
+const PRESENCE_MAX_AGE_MS = 45_000;
+
+async function isMainAdminOnCompanyOrdersPresence(companyId: string): Promise<boolean> {
+  const db: any = prisma;
+  const co = await db.deliveryCompany.findUnique({
+    where: { id: companyId },
+    select: { companyPortalPresencePath: true, companyPortalPresenceAt: true },
+  });
+  const path = (co?.companyPortalPresencePath || "").trim();
+  const at = co?.companyPortalPresenceAt ? new Date(co.companyPortalPresenceAt).getTime() : 0;
+  if (!path || !at || Date.now() - at > PRESENCE_MAX_AGE_MS) return false;
+  if (path === "/company/orders") return true;
+  return /^\/company\/orders\/[0-9a-f-]{36}(\/|$)/i.test(path);
+}
+
 export async function GET() {
   try {
     const auth = await requireCompanyAuth();
@@ -69,9 +84,12 @@ export async function POST(req: NextRequest) {
         { orderId: data?.id, departmentId: auth.departmentId || null },
       );
       if (data?.id && isMainDepartmentActor(auth)) {
-        void emitDepartmentNotification(auth.companyId, auth.companyId, "COMPANY_ORDER_CREATED_MAIN", {
-          orderId: data.id,
-        });
+        const skipInbox = await isMainAdminOnCompanyOrdersPresence(auth.companyId);
+        if (!skipInbox) {
+          void emitDepartmentNotification(auth.companyId, auth.companyId, "COMPANY_ORDER_CREATED_MAIN", {
+            orderId: data.id,
+          });
+        }
       }
     }
     return NextResponse.json(data, { status: res.status });

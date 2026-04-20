@@ -74,7 +74,7 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (pathname === "/company/login") return;
-    if (!profile?.departmentAccountId) return;
+    if (!profile?.companyId) return;
     const t = window.setInterval(() => {
       void fetch("/api/company/presence", {
         method: "POST",
@@ -88,7 +88,7 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
       body: JSON.stringify({ path: pathname || "" }),
     });
     return () => window.clearInterval(t);
-  }, [pathname, profile?.departmentAccountId]);
+  }, [pathname, profile?.companyId]);
 
   const navItems = useMemo<NavItem[]>(
     () => {

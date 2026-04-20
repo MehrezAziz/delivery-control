@@ -74,6 +74,9 @@ export default function CompanyDashboardPage() {
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Returned</p>
           <p className="text-lg font-semibold">{stats?.returned || 0}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Includes orders in return flow and completed return-deposit settlements.
+          </p>
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
