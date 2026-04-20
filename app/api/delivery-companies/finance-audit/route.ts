@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasCSRole, requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { filterDeliveryCompanyIdsForCsFinance } from "@/lib/company-finance-delegation";
 
 function canViewFinanceAudit(auth: Awaited<ReturnType<typeof requireAuth>>): boolean {
   if (auth.role === "ADMIN") return true;
@@ -22,11 +23,18 @@ export async function GET(req: NextRequest) {
     const companyId = req.nextUrl.searchParams.get("deliveryCompanyId")?.trim();
     const take = Math.min(200, Math.max(1, Number(req.nextUrl.searchParams.get("take") || 50)));
 
+    const scoped = await filterDeliveryCompanyIdsForCsFinance(auth);
+    if (companyId && Array.isArray(scoped) && !scoped.includes(companyId)) {
+      return NextResponse.json({ error: "You do not have access to this company" }, { status: 403 });
+    }
+
     const db: any = prisma;
+    const companyFilter =
+      companyId ? { deliveryCompanyId: companyId } : Array.isArray(scoped) ? { deliveryCompanyId: { in: scoped } } : {};
     const rows = await db.deliveryCompanyAuditLog.findMany({
       where: {
         actionType: "COMPANY_FINANCE_ADJUSTED",
-        ...(companyId ? { deliveryCompanyId: companyId } : {}),
+        ...companyFilter,
       },
       orderBy: { createdAt: "desc" },
       take,

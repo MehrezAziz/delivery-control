@@ -50,7 +50,7 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
       ? [{ href: "/cs/delivery-companies", label: "Delivery Companies", icon: Truck }]
       : []),
     ...(csRoles.includes("MANAGE_COMPANY_FINANCE") && csRoles.includes("SEE_DELIVERY_COMPANY")
-      ? [{ href: "/dashboard/delivery-companies/budgets", label: "Company wallet (dashboard)", icon: Wallet }]
+      ? [{ href: "/cs/delivery-companies/budgets", label: "Company wallet & budgets", icon: Wallet }]
       : []),
     { href: "/cs/support", label: "Support", icon: MessageSquare },
     { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },

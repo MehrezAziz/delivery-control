@@ -35,8 +35,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [navItems, setNavItems] = useState(allNavItems);
-  const [panelTitle, setPanelTitle] = useState("Admin Panel");
+  /** Always show the full nav. Route access for Customer Service is enforced by middleware + APIs — shrinking the sidebar hid CS panel links and caused a confusing “flash”. Use /cs/… for CS-specific tools (e.g. company wallet). */
+  const navItems = allNavItems;
+  const panelTitle = "Admin Panel";
 
   // Session security: if sessionStorage flag is missing (window was closed), force re-auth
   useEffect(() => {
@@ -47,37 +48,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         window.location.href = "/login/admin";
       });
     }
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((me: { role?: string; csRoles?: string[] } | null) => {
-        if (!me || me.role !== "CUSTOMER_SERVICE") {
-          setNavItems(allNavItems);
-          setPanelTitle("Admin Panel");
-          return;
-        }
-        const roles = me.csRoles || [];
-        const canBudgets =
-          roles.includes("MANAGE_COMPANY_FINANCE") && roles.includes("SEE_DELIVERY_COMPANY");
-        const canFinDash = roles.includes("MANAGE_FINANCIAL_REPORTS");
-        const restricted = canBudgets || canFinDash;
-        if (!restricted) {
-          setNavItems(allNavItems);
-          setPanelTitle("Staff Panel");
-          return;
-        }
-        const items: typeof allNavItems = [];
-        if (canFinDash) items.push(allNavItems[0]);
-        if (canBudgets) items.push(allNavItems.find((i) => i.href === "/dashboard/delivery-companies/budgets")!);
-        setNavItems(items.length ? items : allNavItems);
-        setPanelTitle("Customer Service");
-      })
-      .catch(() => {
-        setNavItems(allNavItems);
-        setPanelTitle("Admin Panel");
-      });
   }, []);
 
   async function handleLogout() {

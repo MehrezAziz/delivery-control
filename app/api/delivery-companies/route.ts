@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasCSRole, requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { filterDeliveryCompanyIdsForCsFinance } from "@/lib/company-finance-delegation";
 
 export async function GET() {
   try {
@@ -10,7 +11,9 @@ export async function GET() {
     if (auth.role === "CUSTOMER_SERVICE" && !hasCSRole(auth, "SEE_DELIVERY_COMPANY")) {
       return NextResponse.json({ error: "Insufficient permissions: SEE_DELIVERY_COMPANY required" }, { status: 403 });
     }
+    const scoped = await filterDeliveryCompanyIdsForCsFinance(auth);
     const data = await db.deliveryCompany.findMany({
+      where: Array.isArray(scoped) ? { id: { in: scoped } } : {},
       include: {
         addresses: true,
         bankAccounts: true,

@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { enforceCompanyRateLimit, RateLimitError } from "@/lib/company-rate-limit";
 import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { logCompanyAudit } from "@/lib/company-security";
+import { assertCsFinanceCompanyScope } from "@/lib/company-finance-delegation";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -34,6 +35,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     });
     if (!existingRequest) {
       return NextResponse.json({ error: "Budget request not found" }, { status: 404 });
+    }
+
+    try {
+      await assertCsFinanceCompanyScope(auth, existingRequest.deliveryCompanyId);
+    } catch (scopeErr: unknown) {
+      const m = scopeErr instanceof Error ? scopeErr.message : "Forbidden";
+      return NextResponse.json({ error: m }, { status: 403 });
     }
 
     enforceCompanyRateLimit(

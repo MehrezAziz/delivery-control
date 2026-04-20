@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { Fragment, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,8 +185,8 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
             {filtered.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No drivers match filters</TableCell></TableRow>
             ) : filtered.map(acc => (
-              <>
-                <TableRow key={acc.id} className={acc.balance < 0 ? "bg-red-50/50" : ""}>
+              <Fragment key={acc.id}>
+                <TableRow className={acc.balance < 0 ? "bg-red-50/50" : ""}>
                   <TableCell className="font-medium">{acc.driverName}</TableCell>
                   <TableCell>{acc.phone || "-"}</TableCell>
                   <TableCell>
@@ -203,7 +203,7 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
                   </TableCell>
                 </TableRow>
                 {expandedId === acc.id && (
-                  <TableRow key={`${acc.id}-detail`}>
+                  <TableRow>
                     <TableCell colSpan={6}>
                       <div className="bg-muted rounded-lg p-4 space-y-4 border">
                         {negativeBalanceInfo && (
@@ -296,7 +296,7 @@ export default function FinancesClient({ accounts }: { accounts: DriverAccount[]
                     </TableCell>
                   </TableRow>
                 )}
-              </>
+              </Fragment>
             ))}
           </TableBody>
         </Table>

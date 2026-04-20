@@ -11,6 +11,7 @@ export async function GET() {
   const token = cookieStore.get("admin_token")?.value;
   return NextResponse.json({
     superUserId: payload.superUserId,
+    customerServiceId: payload.customerServiceId ?? null,
     role: payload.role,
     pseudo: payload.pseudo,
     email: payload.email,
