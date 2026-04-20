@@ -1081,6 +1081,9 @@ model DeliveryCompanyDepartmentAccount {
   role              DeliveryCompanyDepartmentAccountRole  @map("role")
   status            DeliveryCompanyDepartmentAccountStatus @default(ACTIVE)
   lastLoginAt       DateTime?                             @map("last_login_at")
+  /// Last path reported by the company portal (used to suppress duplicate notifications while user is on Orders).
+  portalPresencePath String?                            @map("portal_presence_path")
+  portalPresenceAt   DateTime?                          @map("portal_presence_at")
   createdAt         DateTime                              @default(now()) @map("created_at")
   updatedAt         DateTime                              @updatedAt @map("updated_at")
 

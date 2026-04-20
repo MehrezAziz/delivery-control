@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { formatCoinsCeil3 } from "@/lib/format-coins";
 
 type CompanyProfile = { id: string; name: string; coinBalance: string | number; onboardingCompleted?: boolean };
 type Stats = {
@@ -47,6 +48,10 @@ export default function CompanyDashboardPage() {
   }, []);
 
   const walletBalance = useMemo(() => Number(walletInfo?.balance || profile?.coinBalance || 0), [walletInfo, profile]);
+  const amountHoldDisplay = useMemo(() => {
+    const locked = Number(walletInfo?.locked ?? stats?.amountHold ?? 0);
+    return Number.isFinite(locked) ? locked : 0;
+  }, [walletInfo?.locked, stats?.amountHold]);
   const isMain = (me?.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
 
   if (loading) return <div>Loading company dashboard...</div>;
@@ -60,7 +65,7 @@ export default function CompanyDashboardPage() {
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Wallet Balance</p>
-          <p className="text-lg font-semibold">{walletBalance.toFixed(2)} coins</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(walletBalance)} coins</p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Delivered</p>
@@ -74,13 +79,13 @@ export default function CompanyDashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Available Capacity</p>
-          <p className="text-lg font-semibold">{Number(walletInfo?.availableCapacity || 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(walletInfo?.availableCapacity || 0)}</p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Amount Hold</p>
-          <p className="text-lg font-semibold">{Number(stats?.amountHold ?? 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(amountHoldDisplay)}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Coins tied to in-flight orders (order price × 1.5 per open delivery / return flow).
+            Coins reserved on in-flight orders (locked wallet balance until delivery completes).
           </p>
         </div>
       </div>

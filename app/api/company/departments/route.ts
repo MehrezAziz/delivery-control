@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
     if (typeof body.latitude !== "number" || typeof body.longitude !== "number") {
       return NextResponse.json({ error: "Coordinates are required" }, { status: 400 });
     }
+    const existingCount = await prisma.deliveryCompanyAddress.count({
+      where: { deliveryCompanyId: auth.companyId },
+    });
+    const isFirstDepartment = existingCount === 0;
     const created = await prisma.deliveryCompanyAddress.create({
       data: {
         deliveryCompanyId: auth.companyId,
@@ -46,9 +50,11 @@ export async function POST(req: NextRequest) {
         city: String(body.governorate),
         street: String(body.delegation),
         postalCode: body.delegationId ? String(body.delegationId) : null,
+        delegationId: body.delegationId ? String(body.delegationId) : null,
         latitude: body.latitude,
         longitude: body.longitude,
-        isDefault: !!body.isDefault,
+        isDefault: isFirstDepartment || !!body.isDefault,
+        isMainDepartment: isFirstDepartment || !!body.isMainDepartment,
       // contactEmail: run `npx prisma generate` after migrations so types include this field
       } as any,
     });

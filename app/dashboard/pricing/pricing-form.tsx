@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,10 +36,33 @@ const defaultValues: Omit<PolicyData, "id" | "isActive"> = {
   extraWeightPrice: 0, nightFee: 0, platformFee: 0, maxNegativeDays: 0,
 };
 
+function formSnapshot(f: PolicyData | (Omit<PolicyData, "id" | "isActive"> & { id: string; isActive: boolean })) {
+  return JSON.stringify({
+    pricePerKm: f.pricePerKm,
+    baseFee: f.baseFee,
+    baseWeight: f.baseWeight,
+    extraWeightStep: f.extraWeightStep,
+    extraWeightPrice: f.extraWeightPrice,
+    nightFee: f.nightFee,
+    platformFee: f.platformFee,
+    maxNegativeDays: f.maxNegativeDays,
+  });
+}
+
 export default function PricingForm({ countryId, zoneType, policy }: { countryId: string; zoneType: string; policy: PolicyData | null }) {
-  const [form, setForm] = useState(policy || { ...defaultValues, id: "", isActive: true });
+  const initial = policy || { ...defaultValues, id: "", isActive: true };
+  const [form, setForm] = useState(initial);
+  const [baseline, setBaseline] = useState(formSnapshot(initial));
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    const next = policy || { ...defaultValues, id: "", isActive: true };
+    setForm(next);
+    setBaseline(formSnapshot(next));
+  }, [policy?.id, countryId, zoneType]);
+
+  const dirty = useMemo(() => formSnapshot(form) !== baseline, [form, baseline]);
 
   function handleChange(key: string, value: string) {
     setForm(prev => ({ ...prev, [key]: key === "maxNegativeDays" ? parseInt(value) || 0 : parseFloat(value) || 0 }));
@@ -54,6 +77,7 @@ export default function PricingForm({ countryId, zoneType, policy }: { countryId
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, countryId, deliveryZoneType: zoneType }),
       });
+      setBaseline(formSnapshot(form));
       router.refresh();
     } finally { setLoading(false); }
   }
@@ -74,8 +98,8 @@ export default function PricingForm({ countryId, zoneType, policy }: { countryId
           </div>
         ))}
       </div>
-      <Button type="submit" size="sm" disabled={loading}>
-        {loading ? "Saving..." : policy ? "Update" : "Create"}
+      <Button type="submit" size="sm" disabled={loading || (!!policy && !dirty)}>
+        {loading ? "Saving..." : policy ? (dirty ? "Update" : "Updated") : "Create"}
       </Button>
     </form>
   );

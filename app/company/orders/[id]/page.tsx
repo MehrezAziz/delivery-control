@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { formatCoinsCeil3 } from "@/lib/format-coins";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { connectSocket, getSocket } from "@/lib/socket";
 import {
@@ -473,7 +474,7 @@ export default function CompanyOrderDetailsPage() {
             Status: <span className="font-medium text-foreground">{order.status}</span>
           </p>
           <p className="text-sm text-muted-foreground">
-            Price: <span className="font-medium text-foreground">{Number(order.price || 0).toFixed(2)}</span>
+            Price: <span className="font-medium text-foreground">{formatCoinsCeil3(order.price || 0)}</span>
           </p>
           <p className="text-sm text-muted-foreground">
             Tracking:{" "}
@@ -691,6 +692,36 @@ export default function CompanyOrderDetailsPage() {
               Proof 2 {order.driverAssignment?.image2Proof ? "uploaded" : "optional"}
             </span>
           </div>
+          {order.status === "DELIVERED" && (order.driverAssignment?.image1Proof || order.driverAssignment?.image2Proof) && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {order.driverAssignment?.image1Proof ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Delivery proof (image 1)
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={order.driverAssignment.image1Proof}
+                    alt="Delivery proof 1"
+                    className="max-h-52 w-full rounded-md border object-contain bg-muted"
+                  />
+                </div>
+              ) : null}
+              {order.driverAssignment?.image2Proof ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Delivery proof (image 2)
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={order.driverAssignment.image2Proof}
+                    alt="Delivery proof 2"
+                    className="max-h-52 w-full rounded-md border object-contain bg-muted"
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
           {(order.status === "RETURNED" || order.status === "RETURN_DEPOSIT") && (
             <div className="mt-4 space-y-3 rounded-lg border border-rose-200/70 bg-rose-50/50 p-4 dark:border-rose-900/60 dark:bg-rose-950/25">
               <p className="text-sm font-semibold text-foreground">Return — driver details</p>

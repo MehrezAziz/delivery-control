@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
-import { ensureMainDepartmentActor, repairDepartmentMainDefaultInvariants } from "@/lib/company-security";
+import { ensureMainDepartmentActor } from "@/lib/company-security";
 
 export async function GET() {
   try {
@@ -71,18 +71,6 @@ export async function POST(req: NextRequest) {
           },
         });
       }
-    }
-    if (body.departmentLabel) {
-      await db.deliveryCompanyAddress.create({
-        data: {
-          deliveryCompanyId: auth.companyId,
-          label: body.departmentLabel,
-          city: body.departmentCity || null,
-          country: body.departmentCountry || null,
-          isDefault: true,
-        },
-      });
-      await repairDepartmentMainDefaultInvariants(auth.companyId);
     }
     await db.deliveryCompany.update({
       where: { id: auth.companyId },

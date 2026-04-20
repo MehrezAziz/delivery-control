@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { MessageSquare, Pencil } from "lucide-react";
 import { buildIdempotencyKey } from "@/lib/idempotency";
+import { formatCoinsCeil3 } from "@/lib/format-coins";
 import { connectSocket, getSocket } from "@/lib/socket";
 
 type CompanyOrder = {
@@ -219,7 +220,7 @@ function CompanyOrdersPageContent() {
   const governorates = pickupCountry?.governorates || [];
   const selectedGovernorate = governorates.find((g) => g.id === dropoffGovernorateId) || null;
   const delegations = selectedGovernorate?.delegations || [];
-  const money = (value: number) => `${Number(value || 0).toFixed(2)} coins`;
+  const money = (value: number) => `${formatCoinsCeil3(value)} coins`;
 
   const loadRef = useRef<((keepLoading?: boolean) => Promise<void>) | null>(null);
   const load = async (keepLoading = false) => {
@@ -572,7 +573,7 @@ function CompanyOrdersPageContent() {
           o.id,
           o.status,
           deliveryCompanyDisplayName(o),
-          Number(o.price || 0).toFixed(2),
+          formatCoinsCeil3(o.price || 0),
           o.createdByDepartmentAccount?.department?.label ||
             o.deliveryCompanyDepartment?.label ||
             "",
@@ -919,7 +920,7 @@ function CompanyOrdersPageContent() {
                 )}
               </div>
               <p className="text-muted-foreground">
-                Price: {Number(order.price || 0).toFixed(2)}
+                Price: {formatCoinsCeil3(order.price || 0)}
               </p>
               {profile?.actorRole &&
                 profile.actorRole !== "MAIN_ADMIN" &&

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Pencil } from "lucide-react";
 
 export default function CompanySetupPage() {
@@ -14,10 +15,6 @@ export default function CompanySetupPage() {
   const [bankEditMode, setBankEditMode] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
-  const [departmentLabel, setDepartmentLabel] = useState("");
-  const [departmentCity, setDepartmentCity] = useState("");
-  const [departmentCountry, setDepartmentCountry] = useState("");
-
   useEffect(() => {
     const load = async () => {
       const res = await fetch("/api/company/onboarding");
@@ -45,9 +42,6 @@ export default function CompanySetupPage() {
       body: JSON.stringify({
         oldPassword: oldPassword || undefined,
         password: password || undefined,
-        departmentLabel: departmentLabel || undefined,
-        departmentCity: departmentCity || undefined,
-        departmentCountry: departmentCountry || undefined,
         bankAccount: accountHolderName
           ? { id: bankId || undefined, accountHolderName, iban, rib, bankName }
           : undefined,
@@ -69,12 +63,13 @@ export default function CompanySetupPage() {
         <input className="w-full rounded-md border px-3 py-2" type="password" placeholder="Old password (required for change)" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
         <input className="w-full rounded-md border px-3 py-2" type="password" placeholder="New password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </section>
-      <section className="rounded-lg border p-4 space-y-2">
-        <h2 className="text-lg font-semibold">First Department</h2>
-        <input className="w-full rounded-md border px-3 py-2" placeholder="Department label" value={departmentLabel} onChange={(e) => setDepartmentLabel(e.target.value)} />
-        <input className="w-full rounded-md border px-3 py-2" placeholder="Department city" value={departmentCity} onChange={(e) => setDepartmentCity(e.target.value)} />
-        <input className="w-full rounded-md border px-3 py-2" placeholder="Department country" value={departmentCountry} onChange={(e) => setDepartmentCountry(e.target.value)} />
-      </section>
+      <p className="text-sm text-muted-foreground">
+        Create your first department on the{" "}
+        <Link href="/company/departments" className="font-medium text-foreground underline">
+          Departments
+        </Link>{" "}
+        page. The first department you add becomes the main and default location for the company.
+      </p>
       <section className="rounded-lg border p-4 space-y-2">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Bank account</h2>

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
-type Gov = { id: string; nameGovernorate: string };
+type Gov = { id: string; nameGovernorate: string; delegations?: Array<{ id: string; nameDelegation: string }> };
 type Country = { id: string; name: string; governorates: Gov[] };
 
 export default function GovernorateEditor({ csId, pseudo }: { csId: string; pseudo: string }) {
@@ -14,6 +15,23 @@ export default function GovernorateEditor({ csId, pseudo }: { csId: string; pseu
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [search, setSearch] = useState("");
+
+  const filteredCountries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return countries;
+    return countries
+      .map((c) => {
+        if (c.name.toLowerCase().includes(q)) return c;
+        const governorates = c.governorates.filter((g) => {
+          if (g.nameGovernorate.toLowerCase().includes(q)) return true;
+          return (g.delegations || []).some((d) => d.nameDelegation.toLowerCase().includes(q));
+        });
+        if (governorates.length === 0) return null;
+        return { ...c, governorates };
+      })
+      .filter(Boolean) as Country[];
+  }, [countries, search]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +121,15 @@ export default function GovernorateEditor({ csId, pseudo }: { csId: string; pseu
       </div>
       {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 
+      <div className="max-w-md">
+        <Input
+          placeholder="Search by country, governorate, or delegation…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-9"
+        />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Coverage for {pseudo}</CardTitle>
@@ -113,7 +140,10 @@ export default function GovernorateEditor({ csId, pseudo }: { csId: string; pseu
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
-          {countries.map((c) => (
+          {filteredCountries.length === 0 && (
+            <p className="text-sm text-muted-foreground">No regions match your search.</p>
+          )}
+          {filteredCountries.map((c) => (
             <div key={c.id} className="rounded-lg border p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">{c.name}</h3>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatCoinsCeil3 } from "@/lib/format-coins";
 
 type WalletInfo = {
   balance: number;
@@ -23,20 +24,21 @@ function formatWalletAmount(tx: WalletTx): { text: string; strike?: boolean } {
   const t = String(tx.type || "").toUpperCase();
   const st = String(tx.orderStatus || "").toUpperCase();
   const raw = Number(tx.amount || 0);
+  const fmt = formatCoinsCeil3(raw);
   if (t.includes("MAIN_COMPANY_BUDGET_WITHDRAWAL")) {
-    return { text: `-${raw.toFixed(2)}` };
+    return { text: `-${fmt}` };
   }
   if (t.includes("BUDGET_REQUEST_REJECTED")) {
-    return { text: raw.toFixed(2), strike: true };
+    return { text: fmt, strike: true };
   }
   if (t.includes("ORDER_ACTIVITY") && st === "CANCELLED") {
-    return { text: "0.00" };
+    return { text: formatCoinsCeil3(0) };
   }
   const settled = ["DELIVERED", "RETURN_DEPOSIT", "REFUNDED", "CANCELLED"];
   if (t.includes("ORDER_ACTIVITY") && st && !settled.includes(st)) {
-    return { text: `~${raw.toFixed(2)}` };
+    return { text: `~${fmt}` };
   }
-  return { text: raw.toFixed(2) };
+  return { text: fmt };
 }
 
 function txTone(tx: WalletTx): string {
@@ -96,19 +98,19 @@ export default function CompanyWalletPage() {
       <section className="grid gap-4 md:grid-cols-4">
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Balance</p>
-          <p className="text-lg font-semibold">{Number(wallet?.balance || 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(wallet?.balance || 0)}</p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Locked</p>
-          <p className="text-lg font-semibold">{Number(wallet?.locked || 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(wallet?.locked || 0)}</p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Available Capacity</p>
-          <p className="text-lg font-semibold">{Number(wallet?.availableCapacity || 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(wallet?.availableCapacity || 0)}</p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">Max Negative Balance</p>
-          <p className="text-lg font-semibold">{Number(wallet?.maxNegativeBalance || 0).toFixed(2)}</p>
+          <p className="text-lg font-semibold">{formatCoinsCeil3(wallet?.maxNegativeBalance || 0)}</p>
         </div>
       </section>
       <section className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">

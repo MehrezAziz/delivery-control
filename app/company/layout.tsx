@@ -29,6 +29,7 @@ type CompanyAuthMe = {
   contactEmail?: string | null;
   departmentId?: string | null;
   departmentLabel?: string | null;
+  departmentAccountId?: string | null;
   onboardingCompleted?: boolean;
   actorRole?: "MAIN_ADMIN" | "DEPT_ADMIN" | "DEPT_OPERATOR" | "DEPT_VIEWER";
 };
@@ -53,6 +54,41 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
       .then((data) => setProfile(data))
       .catch(() => setProfile(null));
   }, [pathname]);
+
+  useEffect(() => {
+    if (pathname === "/company/login") return;
+    if (!profile?.companyId) return;
+    const main = (profile.actorRole || "MAIN_ADMIN") === "MAIN_ADMIN";
+    if (!main) return;
+    if (pathname.startsWith("/company/departments")) return;
+    void fetch("/api/company/departments")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: unknown) => {
+        const list = Array.isArray(rows) ? rows : [];
+        if (list.length === 0) {
+          router.replace("/company/departments");
+        }
+      })
+      .catch(() => {});
+  }, [pathname, profile, router]);
+
+  useEffect(() => {
+    if (pathname === "/company/login") return;
+    if (!profile?.departmentAccountId) return;
+    const t = window.setInterval(() => {
+      void fetch("/api/company/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: pathname || "" }),
+      });
+    }, 12_000);
+    void fetch("/api/company/presence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: pathname || "" }),
+    });
+    return () => window.clearInterval(t);
+  }, [pathname, profile?.departmentAccountId]);
 
   const navItems = useMemo<NavItem[]>(
     () => {

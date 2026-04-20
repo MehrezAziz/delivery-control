@@ -10,7 +10,17 @@ export async function GET() {
       where: { isActive: true },
       orderBy: { name: "asc" },
       include: {
-        governorates: { orderBy: { nameGovernorate: "asc" }, select: { id: true, nameGovernorate: true } },
+        governorates: {
+          orderBy: { nameGovernorate: "asc" },
+          select: {
+            id: true,
+            nameGovernorate: true,
+            delegations: {
+              orderBy: { nameDelegation: "asc" },
+              select: { id: true, nameDelegation: true },
+            },
+          },
+        },
       },
     });
     return NextResponse.json({ countries });
