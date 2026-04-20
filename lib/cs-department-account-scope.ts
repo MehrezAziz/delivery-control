@@ -2,6 +2,18 @@ import type { AdminPayload } from "@/lib/auth";
 import { hasCSRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+/** All governorates linked to this CS (admin → `"all"`). Used for budgets / department-account visibility. */
+export async function getCsAssignedGovernorateIds(auth: AdminPayload): Promise<string[] | "all"> {
+  if (auth.role !== "CUSTOMER_SERVICE") return "all";
+  const csId = auth.customerServiceId;
+  if (!csId) return [];
+  const scoped = await prisma.customerServiceGovernorate.findMany({
+    where: { customerServiceId: csId },
+    select: { governorateId: true },
+  });
+  return [...new Set(scoped.map((s) => s.governorateId))];
+}
+
 /** Governorates assigned to this CS user; empty array = no geographic scope (cannot see dept accounts). `"all"` = admin / no CS restriction. */
 export async function getCsAllowedGovernorateIdsForDepartmentAccounts(
   auth: AdminPayload,

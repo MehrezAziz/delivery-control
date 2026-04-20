@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         country: String(body.country),
         city: String(body.governorate),
         street: String(body.delegation),
-        postalCode: body.delegationId ? String(body.delegationId) : null,
+        postalCode: body.postalCode != null && String(body.postalCode).trim() ? String(body.postalCode).trim() : null,
         delegationId: body.delegationId ? String(body.delegationId) : null,
         latitude: body.latitude,
         longitude: body.longitude,
@@ -101,7 +101,8 @@ export async function PATCH(req: NextRequest) {
       body.contactEmail !== undefined ||
       typeof body.latitude === "number" ||
       typeof body.longitude === "number" ||
-      !!body.delegationId;
+      body.delegationId !== undefined ||
+      body.postalCode !== undefined;
 
     if (!designateMain && !designateDefault && !wantsDetailUpdate) {
       return NextResponse.json({ error: "No changes requested" }, { status: 400 });
@@ -144,7 +145,16 @@ export async function PATCH(req: NextRequest) {
         if (body.country) data.country = String(body.country);
         if (body.governorate) data.city = String(body.governorate);
         if (body.delegation) data.street = String(body.delegation);
-        if (body.delegationId) data.postalCode = String(body.delegationId);
+        if (body.delegationId !== undefined) {
+          data.delegationId =
+            body.delegationId != null && String(body.delegationId).trim()
+              ? String(body.delegationId).trim()
+              : null;
+        }
+        if (body.postalCode !== undefined) {
+          data.postalCode =
+            body.postalCode != null && String(body.postalCode).trim() ? String(body.postalCode).trim() : null;
+        }
         if (typeof body.latitude === "number") data.latitude = body.latitude;
         if (typeof body.longitude === "number") data.longitude = body.longitude;
         if (Object.keys(data).length > 0) {

@@ -19,9 +19,15 @@ export async function PATCH(
     if (nextDepartmentId) {
       const dep = await db.deliveryCompanyAddress.findFirst({
         where: { id: nextDepartmentId, deliveryCompanyId: auth.companyId },
-        select: { id: true },
+        select: { id: true, isMainDepartment: true },
       });
       if (!dep) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+      if (dep.isMainDepartment) {
+        return NextResponse.json(
+          { error: "Main department is reserved for the main company and cannot be assigned to department accounts" },
+          { status: 400 },
+        );
+      }
     }
     const updated = await db.deliveryCompanyDepartmentAccount.updateMany({
       where: { id, deliveryCompanyId: auth.companyId },

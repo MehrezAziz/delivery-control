@@ -23,9 +23,9 @@ export async function POST(req: NextRequest) {
         where: { contactEmail: normalizedEmail },
       });
       if (company && company.passwordHash) {
-        if (company.status !== "ACTIVE") {
+        if (company.status === "SUSPENDED") {
           return NextResponse.json(
-            { error: `Company account is ${company.status}. Ask admin to set status ACTIVE.` },
+            { error: "Company account is suspended. Contact support." },
             { status: 403 },
           );
         }
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
             department: { select: { id: true } },
           },
         });
-        if (!deptAccount || deptAccount.deliveryCompany.status !== "ACTIVE") {
+        if (!deptAccount || deptAccount.deliveryCompany.status === "SUSPENDED") {
           return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
         }
         const valid = await bcrypt.compare(String(password), deptAccount.passwordHash);
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
         },
         include: { deliveryCompany: true },
       });
-      if (!row || row.deliveryCompany.status !== "ACTIVE") {
+      if (!row || row.deliveryCompany.status === "SUSPENDED") {
         return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
       }
       await db.deliveryCompanyApiKey.update({

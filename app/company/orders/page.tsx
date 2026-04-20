@@ -211,6 +211,7 @@ function CompanyOrdersPageContent() {
   const isChildDepartment = !!profile?.actorRole && profile.actorRole !== "MAIN_ADMIN";
   const canEditOrders =
     !!profile?.actorRole && ["MAIN_ADMIN", "DEPT_ADMIN", "DEPT_OPERATOR"].includes(profile.actorRole);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const selectedPickupAddress = (profile?.addresses || []).find((a) => a.id === pickupAddressId) || null;
   const pickupCountry = geo.countries.find(
     (c) =>
@@ -254,8 +255,12 @@ function CompanyOrdersPageContent() {
           isChild && childDepartmentId
             ? profileRes.addresses.find((a: { id: string }) => a.id === childDepartmentId)
             : null;
+        const mainAddress = profileRes.addresses.find(
+          (a: { id: string; isMainDepartment?: boolean }) => a.isMainDepartment,
+        );
         const defaultDept =
           childAddress ||
+          (!isChild ? mainAddress : null) ||
           profileRes.addresses.find((a: { id: string; isDefault?: boolean }) => a.isDefault) ||
           profileRes.addresses[0];
         if (defaultDept?.id) setPickupAddressId(defaultDept.id);
@@ -270,6 +275,21 @@ function CompanyOrdersPageContent() {
     }
   };
   loadRef.current = load;
+
+  const approveDriverQuick = async (orderId: string) => {
+    setMessage(null);
+    setApprovingId(orderId);
+    try {
+      const res = await fetch(`/api/company/orders/${orderId}/approve-driver`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string })?.error || "Failed to approve driver");
+      await loadRef.current?.(true);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : "Failed to approve driver");
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -916,6 +936,16 @@ function CompanyOrdersPageContent() {
                   >
                     <Pencil className="h-3.5 w-3.5" aria-hidden />
                     Edit
+                  </button>
+                )}
+                {order.status === "PENDING_CUSTOMER_APPROVAL" && canEditOrders && (
+                  <button
+                    type="button"
+                    className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60"
+                    disabled={approvingId === order.id}
+                    onClick={() => void approveDriverQuick(order.id)}
+                  >
+                    {approvingId === order.id ? "Approving…" : "Accept driver"}
                   </button>
                 )}
               </div>

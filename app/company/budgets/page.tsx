@@ -124,7 +124,14 @@ function CompanyBudgetsPageContent() {
     balance: number;
     availableCapacity: number;
   } | null>(null);
+  const [departmentAccountsError, setDepartmentAccountsError] = useState<string | null>(null);
   const isMain = actorRole === "MAIN_ADMIN";
+
+  /** Send / recall / schedules credit child-department wallets only (not the main department). */
+  const childDepartmentAccounts = useMemo(
+    () => departmentAccounts.filter((a) => a.department && !a.department.isMainDepartment),
+    [departmentAccounts],
+  );
   const canEditOwnBudgetRequest =
     !isMain && (actorRole === "DEPT_ADMIN" || actorRole === "DEPT_OPERATOR");
 
@@ -155,15 +162,24 @@ function CompanyBudgetsPageContent() {
         fetch("/api/company/departments").then((x) => x.json()),
         fetch("/api/company/budget-policies"),
         fetch("/api/company/budget-requests", { cache: "no-store" }).then((x) => x.json()),
-        fetch("/api/company/department-accounts"),
+        fetch("/api/company/department-accounts", { cache: "no-store" }),
         mainUser ? fetch("/api/company/budget-schedules") : Promise.resolve({ ok: false } as Response),
       ]);
       const pol = polRes.ok ? await polRes.json() : [];
-      const accData = accRes.ok ? await accRes.json() : [];
+      const accJson = await accRes.json().catch(() => null);
       const deps = Array.isArray(dep) ? dep : [];
       setDepartments(deps);
-      const accounts = Array.isArray(accData) ? accData : [];
-      setDepartmentAccounts(accounts);
+      let accounts: DepartmentAccount[] = [];
+      if (!accRes.ok) {
+        setDepartmentAccountsError(
+          typeof accJson?.error === "string" ? accJson.error : `Failed to load department accounts (${accRes.status})`,
+        );
+        setDepartmentAccounts([]);
+      } else {
+        setDepartmentAccountsError(null);
+        accounts = Array.isArray(accJson) ? accJson : [];
+        setDepartmentAccounts(accounts);
+      }
       if (!policyAccountId && accounts.length > 0) setPolicyAccountId(accounts[0].id);
       const transferable = accounts.filter(
         (a: DepartmentAccount) => a.department && !a.department.isMainDepartment,
@@ -250,6 +266,12 @@ function CompanyBudgetsPageContent() {
       setIsAutoApproveEnabled(false);
     }
   }, [isMain, policyAccountId, policies]);
+
+  useEffect(() => {
+    if (!isMain || departmentAccounts.length === 0) return;
+    if (policyAccountId && departmentAccounts.some((a) => a.id === policyAccountId)) return;
+    setPolicyAccountId(departmentAccounts[0].id);
+  }, [isMain, departmentAccounts, policyAccountId]);
 
   useEffect(() => {
     if (!highlightRequest) return;
@@ -691,6 +713,16 @@ function CompanyBudgetsPageContent() {
         <p className="text-xs text-muted-foreground">
           Policies apply to one login account. <strong className="font-medium">Urgent</strong> requests are auto-approved when the toggle is on, company balance is enough, and the rolling total of urgent requests (same account, excluding rejected/cancelled) in the last <em>N</em> hours does not exceed the cap — set <em>N</em> with &quot;Rolling window (hours)&quot;. Recurring top-ups use scheduled transfers below.
         </p>
+        {departmentAccountsError && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Could not load department accounts: {departmentAccountsError}
+          </p>
+        )}
+        {!departmentAccountsError && departmentAccounts.length === 0 && (
+          <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            No department login accounts yet. Create them under <strong className="text-foreground">Company → Departments</strong> (add users for each department).
+          </p>
+        )}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
             <label htmlFor="budget-policy-account" className="text-xs font-medium text-foreground">
@@ -809,6 +841,12 @@ function CompanyBudgetsPageContent() {
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">POST /api/cron/scheduled-budget-transfers</code> with header{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-[11px]">Authorization: Bearer $CRON_SECRET</code>.
         </p>
+        {departmentAccounts.length > 0 && childDepartmentAccounts.length === 0 && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-50">
+            Scheduled transfers only apply to accounts tied to a <strong>non-main</strong> department. Your department logins are all on the main department — add another department under{" "}
+            <strong>Company → Departments</strong>, then create a department account for it.
+          </p>
+        )}
         <div className="grid gap-2 md:grid-cols-4">
           <select
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -817,13 +855,11 @@ function CompanyBudgetsPageContent() {
             aria-label="Department account for schedule"
           >
             <option value="">Department account</option>
-            {departmentAccounts
-              .filter((a) => a.department && !a.department.isMainDepartment)
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.email} — {a.department?.label || "Dept"}
-                </option>
-              ))}
+            {childDepartmentAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.email} — {a.department?.label || "Dept"}
+              </option>
+            ))}
           </select>
           <input
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -951,6 +987,11 @@ function CompanyBudgetsPageContent() {
         <p className="text-xs text-muted-foreground">
           Coins are credited to that account&apos;s department budget wallet (child departments only; main department uses the company wallet).
         </p>
+        {departmentAccounts.length > 0 && childDepartmentAccounts.length === 0 && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-50">
+            Transfers target <strong>non-main</strong> departments only. Add a second department and a login for it, or move a user off the main department, to see options here.
+          </p>
+        )}
         {selectedDeptBudgetHint(transferDepartmentAccountId)}
         {mainCompanyWallet && (
           <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm">
@@ -968,13 +1009,11 @@ function CompanyBudgetsPageContent() {
             onChange={(e) => setTransferDepartmentAccountId(e.target.value)}
           >
             <option value="">Select department account</option>
-            {departmentAccounts
-              .filter((a) => a.department && !a.department.isMainDepartment)
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.email} — {a.department?.label || "Department"}
-                </option>
-              ))}
+            {childDepartmentAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.email} — {a.department?.label || "Department"}
+              </option>
+            ))}
           </select>
           <input className="rounded-md border px-3 py-2" type="number" min="1" step="0.1" value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} placeholder="Amount in coins" />
           <button className="rounded-md border px-3 py-2" onClick={transferCoins}>Send coins</button>
@@ -988,6 +1027,11 @@ function CompanyBudgetsPageContent() {
         <p className="text-xs text-muted-foreground">
           Move coins from a department&apos;s budget wallet back to the company wallet at any time. The department account receives a notification; the company ledger records the return (department budget decreases, company balance increases).
         </p>
+        {departmentAccounts.length > 0 && childDepartmentAccounts.length === 0 && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-50">
+            Recall applies to <strong>non-main</strong> department budget wallets. Add a child department and a department account to use this.
+          </p>
+        )}
         {selectedDeptBudgetHint(recallAccountId)}
         <div className="grid gap-2 md:grid-cols-3">
           <select
@@ -997,13 +1041,11 @@ function CompanyBudgetsPageContent() {
             aria-label="Department account to recall from"
           >
             <option value="">Select department account</option>
-            {departmentAccounts
-              .filter((a) => a.department && !a.department.isMainDepartment)
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.email} — {a.department?.label || "Department"}
-                </option>
-              ))}
+            {childDepartmentAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.email} — {a.department?.label || "Department"}
+              </option>
+            ))}
           </select>
           <input
             className="rounded-md border px-3 py-2"

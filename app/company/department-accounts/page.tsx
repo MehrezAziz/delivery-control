@@ -36,6 +36,7 @@ export default function CompanyDepartmentAccountsPage() {
   const [focusedAccountId, setFocusedAccountId] = useState<string | null>(null);
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const emailInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const assignableDepartments = departments.filter((d) => !d.isMainDepartment);
 
   const beginEditAccount = (a: DepartmentAccount) => {
     setEditById((prev) => ({
@@ -66,7 +67,8 @@ export default function CompanyDepartmentAccountsPage() {
       ]);
       const deps = Array.isArray(depData) ? depData : [];
       setDepartments(deps);
-      if (!departmentId && deps.length > 0) setDepartmentId(deps[0].id);
+      const assignable = deps.filter((d) => !d.isMainDepartment);
+      if (!departmentId && assignable.length > 0) setDepartmentId(assignable[0].id);
       setAccounts(Array.isArray(accData) ? accData : []);
     } catch (e: unknown) {
       setMessage(e instanceof Error ? e.message : "Failed to load department accounts");
@@ -129,14 +131,17 @@ export default function CompanyDepartmentAccountsPage() {
       {message && <div className="rounded-md border bg-muted px-3 py-2 text-sm">{message}</div>}
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 text-lg font-semibold">Create Department Account</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Main department is reserved for the main company and cannot be assigned to department accounts.
+        </p>
         <div className="grid gap-2 md:grid-cols-2">
           <input className="rounded-md border px-3 py-2" placeholder="Account email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input className="rounded-md border px-3 py-2" type="password" placeholder="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <select className="rounded-md border px-3 py-2" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
             <option value="">Select department</option>
-            {departments.map((d) => (
+            {assignableDepartments.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.label} {d.isMainDepartment ? "(Main)" : ""}
+                {d.label}
               </option>
             ))}
           </select>
@@ -240,7 +245,12 @@ export default function CompanyDepartmentAccountsPage() {
                     }))
                   }
                 >
-                  {departments.map((d) => (
+                  {(editById[a.id]?.departmentId ?? a.departmentId) === a.departmentId && a.department?.isMainDepartment && (
+                    <option value={a.departmentId} disabled>
+                      {a.department?.label || "Main department"} (reserved for main company)
+                    </option>
+                  )}
+                  {assignableDepartments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.label}
                     </option>

@@ -26,7 +26,12 @@ type AuditRow = {
   deliveryCompany?: { id: string; name: string };
 };
 
-export function DeliveryCompanyBudgetsPanel() {
+type DeliveryCompanyBudgetsPanelProps = {
+  /** Admin-only: add / withdraw coins on the company main wallet. Hidden for Customer Service. */
+  showFinanceAdjust?: boolean;
+};
+
+export function DeliveryCompanyBudgetsPanel({ showFinanceAdjust = true }: DeliveryCompanyBudgetsPanelProps) {
   const [rows, setRows] = useState<Row[]>([]);
   const [companies, setCompanies] = useState<CompanyOpt[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -145,7 +150,14 @@ export function DeliveryCompanyBudgetsPanel() {
       <div>
         <h1 className="text-2xl font-semibold">Delivery company budgets & wallet</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Approve department budget requests and add or withdraw coins from a company&apos;s main wallet (audited).
+          {showFinanceAdjust ? (
+            <>
+              Approve department budget requests and add or withdraw coins from a company&apos;s main wallet
+              (audited).
+            </>
+          ) : (
+            <>Review and approve department budget requests for companies in your scope (audited).</>
+          )}
         </p>
       </div>
 
@@ -153,74 +165,76 @@ export function DeliveryCompanyBudgetsPanel() {
         <div className="rounded-md border bg-muted px-3 py-2 text-sm whitespace-pre-wrap">{message}</div>
       )}
 
-      <section className="rounded-lg border p-4 space-y-3">
-        <h2 className="text-lg font-medium">Company wallet (main balance)</h2>
-        <p className="text-xs text-muted-foreground">
-          Positive amount adds coins; negative operation withdraws from <strong>available</strong> balance (total
-          minus locked order reserves). Requires Idempotency-Key per request — handled automatically.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Company</span>
-            <select
-              className="rounded-md border bg-background px-2 py-2"
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
-            >
-              <option value="">— Select —</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Amount (coins)</span>
-            <input
-              className="rounded-md border bg-background px-2 py-2"
-              inputMode="decimal"
-              placeholder="e.g. 100"
-              value={adjustAmount}
-              onChange={(e) => setAdjustAmount(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-            <span>Reason (optional)</span>
-            <input
-              className="rounded-md border bg-background px-2 py-2"
-              placeholder="Shown in audit and company notification"
-              value={adjustReason}
-              onChange={(e) => setAdjustReason(e.target.value)}
-            />
-          </label>
-        </div>
-        {selected && (
+      {showFinanceAdjust && (
+        <section className="rounded-lg border p-4 space-y-3">
+          <h2 className="text-lg font-medium">Company wallet (main balance)</h2>
           <p className="text-xs text-muted-foreground">
-            Current main balance: {Number(selected.coinBalance ?? 0).toFixed(2)} · Locked:{" "}
-            {Number(selected.lockedCoins ?? 0).toFixed(2)} · Available:{" "}
-            {(Number(selected.coinBalance ?? 0) - Number(selected.lockedCoins ?? 0)).toFixed(2)}
+            Positive amount adds coins; negative operation withdraws from <strong>available</strong> balance (total
+            minus locked order reserves). Requires Idempotency-Key per request — handled automatically.
           </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-            disabled={adjustBusy}
-            onClick={() => void submitAdjust(1)}
-          >
-            Add coins
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-destructive text-destructive px-3 py-2 text-sm disabled:opacity-50"
-            disabled={adjustBusy}
-            onClick={() => void submitAdjust(-1)}
-          >
-            Withdraw coins
-          </button>
-        </div>
-      </section>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Company</span>
+              <select
+                className="rounded-md border bg-background px-2 py-2"
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+              >
+                <option value="">— Select —</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Amount (coins)</span>
+              <input
+                className="rounded-md border bg-background px-2 py-2"
+                inputMode="decimal"
+                placeholder="e.g. 100"
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              <span>Reason (optional)</span>
+              <input
+                className="rounded-md border bg-background px-2 py-2"
+                placeholder="Shown in audit and company notification"
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+              />
+            </label>
+          </div>
+          {selected && (
+            <p className="text-xs text-muted-foreground">
+              Current main balance: {Number(selected.coinBalance ?? 0).toFixed(2)} · Locked:{" "}
+              {Number(selected.lockedCoins ?? 0).toFixed(2)} · Available:{" "}
+              {(Number(selected.coinBalance ?? 0) - Number(selected.lockedCoins ?? 0)).toFixed(2)}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              disabled={adjustBusy}
+              onClick={() => void submitAdjust(1)}
+            >
+              Add coins
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-destructive text-destructive px-3 py-2 text-sm disabled:opacity-50"
+              disabled={adjustBusy}
+              onClick={() => void submitAdjust(-1)}
+            >
+              Withdraw coins
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-lg font-medium">Finance adjustment audit</h2>

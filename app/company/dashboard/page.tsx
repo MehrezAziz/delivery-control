@@ -85,7 +85,8 @@ export default function CompanyDashboardPage() {
           <p className="text-sm text-muted-foreground">Amount Hold</p>
           <p className="text-lg font-semibold">{formatCoinsCeil3(amountHoldDisplay)}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Coins reserved on in-flight orders (locked wallet balance until delivery completes).
+            Estimated coins held for open company orders (price + return reserve). Final settlement happens when the order
+            completes.
           </p>
         </div>
       </div>

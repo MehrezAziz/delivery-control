@@ -2,34 +2,54 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireCompanyAuth } from "@/lib/company-auth";
-import { ensureCompanyIsActive, ensureMainDepartmentActor, ensureMainDepartmentExists, logCompanyAudit } from "@/lib/company-security";
+import {
+  ensureCompanyIsActive,
+  ensureMainDepartmentActor,
+  isMainDepartmentActor,
+  logCompanyAudit,
+} from "@/lib/company-security";
+
+const departmentInclude = {
+  department: {
+    select: {
+      id: true,
+      label: true,
+      isMainDepartment: true,
+      country: true,
+      city: true,
+      street: true,
+      postalCode: true,
+      latitude: true,
+      longitude: true,
+    },
+  },
+} as const;
 
 export async function GET() {
   try {
     const auth = await requireCompanyAuth();
     await ensureCompanyIsActive(auth.companyId);
-    ensureMainDepartmentActor(auth);
     const db: any = prisma;
-    const rows = await db.deliveryCompanyDepartmentAccount.findMany({
-      where: { deliveryCompanyId: auth.companyId },
-      orderBy: { createdAt: "desc" },
-      include: {
-        department: {
-          select: {
-            id: true,
-            label: true,
-            isMainDepartment: true,
-            country: true,
-            city: true,
-            street: true,
-            postalCode: true,
-            latitude: true,
-            longitude: true,
-          },
-        },
-      },
+
+    /** Main company: all accounts. Department login: only own row (same shape for budgets UI). */
+    if (isMainDepartmentActor(auth)) {
+      const rows = await db.deliveryCompanyDepartmentAccount.findMany({
+        where: { deliveryCompanyId: auth.companyId },
+        orderBy: { createdAt: "desc" },
+        include: departmentInclude,
+      });
+      return NextResponse.json(rows);
+    }
+
+    if (!auth.departmentAccountId) {
+      return NextResponse.json([]);
+    }
+
+    const row = await db.deliveryCompanyDepartmentAccount.findFirst({
+      where: { id: auth.departmentAccountId, deliveryCompanyId: auth.companyId },
+      include: departmentInclude,
     });
-    return NextResponse.json(rows);
+    return NextResponse.json(row ? [row] : []);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to load department accounts";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -42,18 +62,23 @@ export async function POST(req: NextRequest) {
     await ensureCompanyIsActive(auth.companyId);
     ensureMainDepartmentActor(auth);
     const db: any = prisma;
-    const mainDepartmentId = await ensureMainDepartmentExists(auth.companyId);
     const body = await req.json();
-    if (!body?.email || !body?.password || !body?.role) {
-      return NextResponse.json({ error: "email, password and role are required" }, { status: 400 });
+    if (!body?.email || !body?.password || !body?.role || !body?.departmentId) {
+      return NextResponse.json({ error: "email, password, role and departmentId are required" }, { status: 400 });
     }
 
-    const departmentId = String(body.departmentId || mainDepartmentId);
+    const departmentId = String(body.departmentId);
     const targetDepartment = await db.deliveryCompanyAddress.findFirst({
       where: { id: departmentId, deliveryCompanyId: auth.companyId },
-      select: { id: true },
+      select: { id: true, isMainDepartment: true },
     });
     if (!targetDepartment) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    if (targetDepartment.isMainDepartment) {
+      return NextResponse.json(
+        { error: "Main department is reserved for the main company and cannot be assigned to department accounts" },
+        { status: 400 },
+      );
+    }
 
     const created = await db.deliveryCompanyDepartmentAccount.create({
       data: {

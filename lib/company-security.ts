@@ -1,15 +1,39 @@
 import { prisma } from "@/lib/prisma";
 import { CompanyPayload } from "@/lib/company-auth";
 
-export async function ensureCompanyIsActive(companyId: string) {
+/** Company may call operational APIs: not suspended, and main department with delegation exists. */
+export async function ensureCompanyOperational(companyId: string) {
   const db: any = prisma;
   const company = await db.deliveryCompany.findUnique({
     where: { id: companyId },
     select: { id: true, status: true },
   });
   if (!company) throw new Error("Company not found");
-  if (company.status !== "ACTIVE") throw new Error("Company is not active");
+  if (company.status === "SUSPENDED") throw new Error("Company is suspended");
+  /**
+   * Main and default may be the same `delivery_company_addresses` row or two different rows.
+   * Do not require `delegationId` on the `isMainDepartment` row only — the default row may hold
+   * governorate/delegation while the main row is address-only; both are "anchor" departments.
+   */
+  const anchorWithDelegation = await db.deliveryCompanyAddress.findFirst({
+    where: {
+      deliveryCompanyId: companyId,
+      delegationId: { not: null },
+      OR: [{ isMainDepartment: true }, { isDefault: true }],
+    },
+    select: { id: true },
+  });
+  if (!anchorWithDelegation) {
+    throw new Error(
+      "Set country, governorate, and delegation on your main or default department before using this feature.",
+    );
+  }
   return company;
+}
+
+/** @deprecated Use ensureCompanyOperational — name kept for call sites. */
+export async function ensureCompanyIsActive(companyId: string) {
+  return ensureCompanyOperational(companyId);
 }
 
 /** Ensures exactly one `isMainDepartment` and one `isDefault` per company (can be the same row or two different rows). */

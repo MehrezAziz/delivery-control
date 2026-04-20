@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { hasCSRole, requireAuth } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logCompanyAudit } from "@/lib/company-security";
 import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { logAction } from "@/lib/action-log";
 import { enforceCompanyRateLimit, RateLimitError } from "@/lib/company-rate-limit";
-import { assertCsFinanceCompanyScope } from "@/lib/company-finance-delegation";
-
 function canAdjustFinance(auth: Awaited<ReturnType<typeof requireAuth>>): boolean {
-  if (auth.role === "ADMIN") return true;
-  return (
-    auth.role === "CUSTOMER_SERVICE" &&
-    hasCSRole(auth, "SEE_DELIVERY_COMPANY") &&
-    hasCSRole(auth, "MANAGE_COMPANY_FINANCE")
-  );
+  return auth.role === "ADMIN";
 }
 
 /**
@@ -35,12 +28,6 @@ export async function POST(req: NextRequest) {
 
     if (!deliveryCompanyId) {
       return NextResponse.json({ error: "deliveryCompanyId is required" }, { status: 400 });
-    }
-    try {
-      await assertCsFinanceCompanyScope(auth, deliveryCompanyId);
-    } catch (scopeErr: unknown) {
-      const m = scopeErr instanceof Error ? scopeErr.message : "Forbidden";
-      return NextResponse.json({ error: m }, { status: 403 });
     }
     if (!Number.isFinite(rawAmount) || rawAmount === 0) {
       return NextResponse.json({ error: "amountCoins must be a non-zero number" }, { status: 400 });
