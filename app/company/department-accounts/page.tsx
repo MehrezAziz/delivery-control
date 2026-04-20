@@ -36,7 +36,10 @@ export default function CompanyDepartmentAccountsPage() {
   const [focusedAccountId, setFocusedAccountId] = useState<string | null>(null);
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const emailInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-  const assignableDepartments = departments.filter((d) => !d.isMainDepartment);
+  const assignedDepartmentIds = new Set(accounts.map((a) => a.departmentId).filter(Boolean));
+  const assignableDepartments = departments.filter(
+    (d) => !d.isMainDepartment && !assignedDepartmentIds.has(d.id),
+  );
 
   const beginEditAccount = (a: DepartmentAccount) => {
     setEditById((prev) => ({
@@ -248,6 +251,11 @@ export default function CompanyDepartmentAccountsPage() {
                   {(editById[a.id]?.departmentId ?? a.departmentId) === a.departmentId && a.department?.isMainDepartment && (
                     <option value={a.departmentId} disabled>
                       {a.department?.label || "Main department"} (reserved for main company)
+                    </option>
+                  )}
+                  {(editById[a.id]?.departmentId ?? a.departmentId) === a.departmentId && !a.department?.isMainDepartment && (
+                    <option value={a.departmentId}>
+                      {a.department?.label || "Current department"} (current)
                     </option>
                   )}
                   {assignableDepartments.map((d) => (

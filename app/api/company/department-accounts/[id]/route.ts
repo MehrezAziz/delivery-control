@@ -28,6 +28,20 @@ export async function PATCH(
           { status: 400 },
         );
       }
+      const alreadyAssigned = await db.deliveryCompanyDepartmentAccount.findFirst({
+        where: {
+          deliveryCompanyId: auth.companyId,
+          departmentId: nextDepartmentId,
+          id: { not: id },
+        },
+        select: { id: true, email: true },
+      });
+      if (alreadyAssigned) {
+        return NextResponse.json(
+          { error: `Department is already assigned to account ${alreadyAssigned.email}` },
+          { status: 400 },
+        );
+      }
     }
     const updated = await db.deliveryCompanyDepartmentAccount.updateMany({
       where: { id, deliveryCompanyId: auth.companyId },

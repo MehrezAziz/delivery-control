@@ -79,6 +79,16 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    const alreadyAssigned = await db.deliveryCompanyDepartmentAccount.findFirst({
+      where: { deliveryCompanyId: auth.companyId, departmentId },
+      select: { id: true, email: true },
+    });
+    if (alreadyAssigned) {
+      return NextResponse.json(
+        { error: `Department is already assigned to account ${alreadyAssigned.email}` },
+        { status: 400 },
+      );
+    }
 
     const created = await db.deliveryCompanyDepartmentAccount.create({
       data: {
