@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { companyBackendFetch } from "@/lib/company-api";
 import { requireCompanyAuth } from "@/lib/company-auth";
 import { ensureCompanyRoleAllowed, isMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
+import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { prisma } from "@/lib/prisma";
 import { enforceCompanyRateLimit } from "@/lib/company-rate-limit";
 
@@ -67,6 +68,11 @@ export async function POST(req: NextRequest) {
         auth.departmentAccountId || auth.companyId,
         { orderId: data?.id, departmentId: auth.departmentId || null },
       );
+      if (data?.id && isMainDepartmentActor(auth)) {
+        void emitDepartmentNotification(auth.companyId, auth.companyId, "COMPANY_ORDER_CREATED_MAIN", {
+          orderId: data.id,
+        });
+      }
     }
     return NextResponse.json(data, { status: res.status });
   } catch (e: unknown) {

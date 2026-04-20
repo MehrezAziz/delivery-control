@@ -145,28 +145,42 @@ export async function emitDepartmentNotification(
       mappedType === "REFUND_PROCESSED"
         ? "Your refund has been processed."
         : "Your refund request was rejected or failed.";
+  } else if (type === "COMPANY_ORDER_CREATED_MAIN") {
+    mappedType = "ORDER_CREATED";
+    title = "New company order";
+    const oid = String((payload as { orderId?: string }).orderId || "").trim();
+    body = oid
+      ? `Order #${oid.slice(0, 8)} was created using the company wallet. Open Orders to manage it.`
+      : "A new order was created using the company wallet. Open Orders to manage it.";
   }
 
   // Fire-and-forget style: if notification dispatch fails, do not break business flow.
   const requestId = (payload as { requestId?: string }).requestId;
   const scheduleId = (payload as { scheduleId?: string }).scheduleId;
+  const orderIdPayload = String((payload as { orderId?: string }).orderId || "").trim();
   const inferredGroupKey =
     (payload as { groupKey?: string }).groupKey ??
+    (orderIdPayload && type === "COMPANY_ORDER_CREATED_MAIN" ? `order:${orderIdPayload}` : undefined) ??
     (requestId && type.includes("BUDGET") && !type.includes("SCHEDULED") ? `budget:${requestId}` : undefined) ??
     (scheduleId && type.includes("SCHEDULED_BUDGET") ? `scheduled-budget:${scheduleId}` : undefined) ??
     (requestId && type.includes("REFUND") ? `refund:${requestId}` : undefined);
 
-  const relatedEntityType = type.includes("REFUND")
-    ? "RefundRequest"
-    : type.includes("SCHEDULED_BUDGET")
-      ? "ScheduledBudgetTransfer"
-      : type === "BUDGET_RECALL_FROM_COMPANY_DEPT" || type === "COMPANY_FINANCE_ADJUSTED"
-        ? "CompanyWallet"
-        : "BudgetRequest";
+  const relatedEntityType =
+    type === "COMPANY_ORDER_CREATED_MAIN"
+      ? "Order"
+      : type.includes("REFUND")
+        ? "RefundRequest"
+        : type.includes("SCHEDULED_BUDGET")
+          ? "ScheduledBudgetTransfer"
+          : type === "BUDGET_RECALL_FROM_COMPANY_DEPT" || type === "COMPANY_FINANCE_ADJUSTED"
+            ? "CompanyWallet"
+            : "BudgetRequest";
   const relatedEntityId =
-    type === "COMPANY_FINANCE_ADJUSTED"
-      ? String((payload as { companyId?: string }).companyId || targetUserId)
-      : scheduleId ?? requestId ?? null;
+    type === "COMPANY_ORDER_CREATED_MAIN"
+      ? orderIdPayload || null
+      : type === "COMPANY_FINANCE_ADJUSTED"
+        ? String((payload as { companyId?: string }).companyId || targetUserId)
+        : scheduleId ?? requestId ?? null;
   const jsonBody = JSON.stringify({
     type: mappedType,
     title,
