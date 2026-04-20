@@ -2,11 +2,12 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { MessageSquare, Pencil } from "lucide-react";
 import { buildIdempotencyKey } from "@/lib/idempotency";
 import { formatCoinsCeil3 } from "@/lib/format-coins";
 import { connectSocket, getSocket } from "@/lib/socket";
+import { isViewerOnCompanyOrdersChrome } from "@/lib/company-orders-inbox";
 
 type CompanyOrder = {
   id: string;
@@ -156,6 +157,7 @@ function FieldLine({ label, children }: { label: string; children: ReactNode }) 
 }
 
 function CompanyOrdersPageContent() {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<CompanyOrder[]>([]);
   const [listTick, setListTick] = useState(0);
@@ -508,9 +510,14 @@ function CompanyOrdersPageContent() {
         return;
       }
       const idemKey = buildIdempotencyKey("company-orders-create", currentPayload);
+      const suppressInbox = isViewerOnCompanyOrdersChrome(pathname);
       const res = await fetch("/api/company/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": idemKey },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idemKey,
+          ...(suppressInbox ? { "X-Suppress-Company-Order-Inbox": "1" } : {}),
+        },
         body: JSON.stringify(currentPayload),
       });
       const data = await res.json();

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
+import type { CompanyPayload } from "@/lib/company-auth";
 import { logCompanyAudit } from "@/lib/company-security";
-import { companyBackendFetch } from "@/lib/company-api";
+import { companyBackendFetch, companyBackendFetchWithAuth } from "@/lib/company-api";
 import { prisma } from "@/lib/prisma";
 
 /** Persist inbox row when backend API is unreachable or returns an error (shared DB with delivery-backend). */
@@ -31,12 +32,18 @@ async function persistCompanyInAppNotification(opts: {
   });
 }
 
+export type EmitDepartmentNotificationOptions = {
+  /** When set, avoids `requireCompanyAuth()` / `cookies()` inside the emitter (required for reliable dispatch after an API route returns). */
+  companyAuth?: CompanyPayload;
+};
+
 /** @param targetUserId Department address id, department account id, or company id — stored as Notification.userId for the company portal inbox. */
 export async function emitDepartmentNotification(
   companyId: string,
   targetUserId: string,
   type: string,
   payload: Record<string, unknown>,
+  options?: EmitDepartmentNotificationOptions,
 ) {
   await logCompanyAudit(companyId, "DEPARTMENT_NOTIFICATION_EMITTED", "SYSTEM", null, {
     targetUserId,
@@ -181,6 +188,8 @@ export async function emitDepartmentNotification(
       : type === "COMPANY_FINANCE_ADJUSTED"
         ? String((payload as { companyId?: string }).companyId || targetUserId)
         : scheduleId ?? requestId ?? null;
+  /** Match driver-assigned / dept flows: HIGH so WEB_SOCKET is included and the company bell refreshes immediately. */
+  const priorityForMainOrder = type === "COMPANY_ORDER_CREATED_MAIN" ? "HIGH" : undefined;
   const jsonBody = JSON.stringify({
     type: mappedType,
     title,
@@ -189,6 +198,7 @@ export async function emitDepartmentNotification(
     relatedEntityId,
     groupKey: inferredGroupKey,
     targetUserId,
+    ...(priorityForMainOrder ? { priority: priorityForMainOrder } : {}),
   });
 
   const persistLocal = async () => {
@@ -208,10 +218,10 @@ export async function emitDepartmentNotification(
   };
 
   try {
-    const res = await companyBackendFetch("/notifications/department", {
-      method: "POST",
-      body: jsonBody,
-    });
+    const fetchInit = { method: "POST" as const, body: jsonBody };
+    const res = options?.companyAuth
+      ? await companyBackendFetchWithAuth(options.companyAuth, "/notifications/department", fetchInit)
+      : await companyBackendFetch("/notifications/department", fetchInit);
     if (!res.ok) {
       await persistLocal();
     }

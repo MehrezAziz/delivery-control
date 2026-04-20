@@ -2,24 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { companyBackendFetch } from "@/lib/company-api";
 import { requireCompanyAuth } from "@/lib/company-auth";
 import { ensureCompanyRoleAllowed, isMainDepartmentActor, logCompanyAudit } from "@/lib/company-security";
+import { shouldNotifyMainCompanyInboxForNewOrder } from "@/lib/company-orders-inbox";
 import { emitDepartmentNotification } from "@/lib/company-notifications";
 import { prisma } from "@/lib/prisma";
 import { enforceCompanyRateLimit } from "@/lib/company-rate-limit";
 
-const PRESENCE_MAX_AGE_MS = 45_000;
-
-async function isMainAdminOnCompanyOrdersPresence(companyId: string): Promise<boolean> {
-  const db: any = prisma;
-  const co = await db.deliveryCompany.findUnique({
-    where: { id: companyId },
-    select: { companyPortalPresencePath: true, companyPortalPresenceAt: true },
-  });
-  const path = (co?.companyPortalPresencePath || "").trim();
-  const at = co?.companyPortalPresenceAt ? new Date(co.companyPortalPresenceAt).getTime() : 0;
-  if (!path || !at || Date.now() - at > PRESENCE_MAX_AGE_MS) return false;
-  if (path === "/company/orders") return true;
-  return /^\/company\/orders\/[0-9a-f-]{36}(\/|$)/i.test(path);
-}
+/** Set by the browser only when POST /orders is submitted from the orders UI (tab knows pathname). */
+const SUPPRESS_INBOX_HEADER = "x-suppress-company-order-inbox";
 
 export async function GET() {
   try {
@@ -62,6 +51,8 @@ export async function POST(req: NextRequest) {
     }
     const bodyObj = await req.json();
     const body = JSON.stringify(bodyObj);
+    const suppressNewOrderInbox =
+      req.headers.get(SUPPRESS_INBOX_HEADER) === "1" || req.headers.get(SUPPRESS_INBOX_HEADER) === "true";
     const res = await companyBackendFetch("/orders", {
       method: "POST",
       body,
@@ -83,12 +74,15 @@ export async function POST(req: NextRequest) {
         auth.departmentAccountId || auth.companyId,
         { orderId: data?.id, departmentId: auth.departmentId || null },
       );
-      if (data?.id && isMainDepartmentActor(auth)) {
-        const skipInbox = await isMainAdminOnCompanyOrdersPresence(auth.companyId);
-        if (!skipInbox) {
-          void emitDepartmentNotification(auth.companyId, auth.companyId, "COMPANY_ORDER_CREATED_MAIN", {
-            orderId: data.id,
-          });
+      if (data?.id && (await shouldNotifyMainCompanyInboxForNewOrder(auth))) {
+        if (!suppressNewOrderInbox) {
+          await emitDepartmentNotification(
+            auth.companyId,
+            auth.companyId,
+            "COMPANY_ORDER_CREATED_MAIN",
+            { orderId: data.id },
+            { companyAuth: auth },
+          );
         }
       }
     }
