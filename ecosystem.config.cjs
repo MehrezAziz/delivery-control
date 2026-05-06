@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /**
  * PM2 on the VPS (production):
  *   cd /var/www/delivery-platform/delivery-control   # or your install path
@@ -14,6 +15,8 @@ try {
   /* optional dep resolution if .env missing */
 }
 
+=======
+>>>>>>> 2658fd675d6d7c40036fbfc03cdeff63395130b1
 module.exports = {
   apps: [
     {
@@ -26,7 +29,10 @@ module.exports = {
       autorestart: true,
       max_memory_restart: '512M',
       env: {
+<<<<<<< HEAD
         ...process.env,
+=======
+>>>>>>> 2658fd675d6d7c40036fbfc03cdeff63395130b1
         NODE_ENV: 'production',
       },
     },
