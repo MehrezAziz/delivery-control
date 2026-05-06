@@ -25,7 +25,13 @@ export default function CSLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, expectedRole: "CUSTOMER_SERVICE" }),
       });
-      const data = await res.json();
+      let data: { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        setError(res.ok ? "Invalid response" : `Server error (${res.status})`);
+        return;
+      }
       if (!res.ok) { setError(data.error || "Login failed"); return; }
       // Mark session as active (closing tab clears this)
       sessionStorage.setItem("session_active", "1");
