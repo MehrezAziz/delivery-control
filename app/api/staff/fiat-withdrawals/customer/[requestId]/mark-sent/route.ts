@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { canProcessFiatWithdrawals } from "@/lib/staff-withdrawal-access";
 import { notifyUserFiatPayoutSent } from "@/lib/notify-fiat-payout-sent";
+import { logAction } from "@/lib/action-log";
 
 export async function POST(
   req: NextRequest,
@@ -27,7 +28,17 @@ export async function POST(
       withdrawalRequestId: string;
     };
 
-    const notify = await prisma.$transaction(async (tx): Promise<NotifyPayload | null> => {
+    type TxResult = {
+      notify: NotifyPayload | null;
+      logMeta: {
+        requestId: string;
+        amount: number;
+        currency: string;
+        payoutMethod: "CASH" | "BANK_TRANSFER";
+      };
+    };
+
+    const { notify, logMeta } = await prisma.$transaction(async (tx): Promise<TxResult> => {
       const wr = await tx.withdrawalRequest.findUnique({
         where: { id: requestId },
         include: { wallet: { include: { customer: true } } },
@@ -68,13 +79,24 @@ export async function POST(
         },
       });
       const customerUserId = wr.wallet.customer?.userId;
-      if (!customerUserId) return null;
+      const payoutMethod = wr.payoutMethod === "CASH" ? "CASH" : "BANK_TRANSFER";
+      const notifyPayload: NotifyPayload | null = customerUserId
+        ? {
+            userId: customerUserId,
+            amount: amt.toFixed(2),
+            currency: wr.wallet.currency,
+            payoutMethod,
+            withdrawalRequestId: wr.id,
+          }
+        : null;
       return {
-        userId: customerUserId,
-        amount: amt.toFixed(2),
-        currency: wr.wallet.currency,
-        payoutMethod: wr.payoutMethod === "CASH" ? "CASH" : "BANK_TRANSFER",
-        withdrawalRequestId: wr.id,
+        notify: notifyPayload,
+        logMeta: {
+          requestId: wr.id,
+          amount: amt,
+          currency: wr.wallet.currency,
+          payoutMethod,
+        },
       };
     });
 
@@ -83,6 +105,30 @@ export async function POST(
         ...notify,
         relatedEntityType: "WithdrawalRequest",
       });
+    }
+
+    const noteTrim =
+      typeof body?.adminNote === "string" && body.adminNote.trim() ? body.adminNote.trim().slice(0, 2000) : null;
+    try {
+      await logAction({
+        actorId: auth.superUserId,
+        actorRole: auth.role,
+        actionType: "FIAT_SEND_MONEY",
+        targetType: "CUSTOMER_WITHDRAWAL_REQUEST",
+        targetId: logMeta.requestId,
+        oldValue: "PENDING",
+        newValue: JSON.stringify({
+          status: "ACCEPTED",
+          amount: logMeta.amount,
+          currency: logMeta.currency,
+          payoutMethod: logMeta.payoutMethod,
+          actorPseudo: auth.pseudo,
+          actorEmail: auth.email,
+        }),
+        reason: noteTrim,
+      });
+    } catch (logErr) {
+      console.error("Failed to log FIAT_SEND_MONEY action:", logErr);
     }
 
     return NextResponse.json({ ok: true });
