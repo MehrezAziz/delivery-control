@@ -29,11 +29,26 @@ interface DisplayNotification extends Notification {
   groupedIds?: string[];
 }
 
+function tryDesktopNotification(notif: Pick<Notification, "id" | "title" | "body">) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  if (typeof document !== "undefined" && document.visibilityState === "visible") return;
+  try {
+    new Notification(notif.title || "Notification", {
+      body: (notif.body ?? "").trim() || undefined,
+      tag: notif.id,
+    });
+  } catch {
+    // Older browsers / denied after grant
+  }
+}
+
 export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [desktopPerm, setDesktopPerm] = useState<NotificationPermission | "unsupported">("unsupported");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -48,6 +63,14 @@ export function NotificationBell() {
   }, [pathname]);
   const suppressCsSupportTicketIdRef = useRef<string | null>(null);
   suppressCsSupportTicketIdRef.current = suppressCsSupportTicketId;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof Notification === "undefined") {
+      setDesktopPerm("unsupported");
+      return;
+    }
+    setDesktopPerm(Notification.permission);
+  }, []);
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
@@ -112,6 +135,7 @@ export function NotificationBell() {
           setUnreadCount((c) => c + 1);
           setNotifications((prev) => [notif, ...prev].slice(0, 10));
           toast(notif.title, { description: notif.body });
+          tryDesktopNotification(notif);
         });
       } catch {}
     }
@@ -202,7 +226,16 @@ export function NotificationBell() {
       router.push(`${basePath}/orders/${n.relatedEntityId}`);
     } else if (n.type === 'NEW_DRIVER_REGISTRATION' || n.type === 'DRIVER_DOCUMENTS_SUBMITTED') {
       router.push(`${basePath}/drivers`);
-    } else if (n.type === 'LARGE_WITHDRAWAL_REQUEST' || n.type === 'DRIVER_DEBT_THRESHOLD') {
+    } else if (n.type === 'LARGE_WITHDRAWAL_REQUEST') {
+      if (
+        n.relatedEntityType === "WithdrawalRequest" ||
+        n.relatedEntityType === "DriverWithdrawalRequest"
+      ) {
+        router.push(`${basePath}/fiat-withdrawals`);
+      } else {
+        router.push(`${basePath}/finances`);
+      }
+    } else if (n.type === 'DRIVER_DEBT_THRESHOLD') {
       router.push(`${basePath}/finances`);
     }
   };
@@ -253,6 +286,28 @@ export function NotificationBell() {
             )}
           </div>
 
+          {desktopPerm === "default" && (
+            <div className="border-b px-4 py-2 flex flex-col gap-1.5 bg-muted/40">
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Get a system notification when something arrives while this tab is in the background.
+              </p>
+              <button
+                type="button"
+                className="text-xs font-medium text-blue-600 hover:underline self-start"
+                onClick={async () => {
+                  try {
+                    const p = await Notification.requestPermission();
+                    setDesktopPerm(p);
+                  } catch {
+                    setDesktopPerm("denied");
+                  }
+                }}
+              >
+                Enable desktop alerts
+              </button>
+            </div>
+          )}
+
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
@@ -292,19 +347,30 @@ export function NotificationBell() {
               ))
             )}
           </div>
-          {!isAdmin && (
-            <div className="border-t px-4 py-2">
+          <div className="border-t px-4 py-2 flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                router.push(isAdmin ? "/dashboard/device-push" : "/cs/device-push");
+              }}
+              className="text-xs text-blue-600 hover:underline text-left"
+            >
+              Mobile push (FCM) for this account
+            </button>
+            {!isAdmin && (
               <button
+                type="button"
                 onClick={() => {
                   setIsOpen(false);
                   router.push("/cs/notifications");
                 }}
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-blue-600 hover:underline text-left"
               >
                 View all notifications
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

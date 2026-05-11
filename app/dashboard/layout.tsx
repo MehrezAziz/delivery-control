@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet, Bot,
+  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet, Bot, Smartphone,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,6 +18,7 @@ const allNavItems = [
   { href: "/dashboard/users", label: "Users", icon: Users },
   { href: "/dashboard/drivers", label: "Driver Approval", icon: Truck },
   { href: "/dashboard/finances", label: "Driver Finances", icon: Wallet },
+  { href: "/dashboard/fiat-withdrawals", label: "Fiat payouts", icon: DollarSign },
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/delivery-companies", label: "Delivery Companies", icon: Truck },
@@ -28,6 +29,7 @@ const allNavItems = [
   { href: "/dashboard/ai-support", label: "AI Support", icon: Bot },
   { href: "/dashboard/restrictions", label: "Restrictions", icon: Shield },
   { href: "/dashboard/system-config", label: "System Config", icon: Settings },
+  { href: "/dashboard/device-push", label: "Mobile push (FCM)", icon: Smartphone },
   { href: "/dashboard/action-logs", label: "Action Logs", icon: ClipboardList },
 ];
 

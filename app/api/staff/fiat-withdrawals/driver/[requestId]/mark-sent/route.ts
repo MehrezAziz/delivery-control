@@ -1,0 +1,93 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth";
+import { canProcessFiatWithdrawals } from "@/lib/staff-withdrawal-access";
+import { notifyUserFiatPayoutSent } from "@/lib/notify-fiat-payout-sent";
+
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ requestId: string }> },
+) {
+  try {
+    const auth = await requireAuth();
+    if (!canProcessFiatWithdrawals(auth)) {
+      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    }
+    const { requestId } = await ctx.params;
+    const body = await req.json().catch(() => ({}));
+    if (body?.confirm !== true) {
+      return NextResponse.json({ error: "confirm must be true" }, { status: 400 });
+    }
+
+    type NotifyPayload = {
+      userId: string;
+      amount: string;
+      currency: string;
+      payoutMethod: "CASH" | "BANK_TRANSFER";
+      withdrawalRequestId: string;
+    };
+
+    const notify = await prisma.$transaction(async (tx): Promise<NotifyPayload | null> => {
+      const wr = await tx.driverWithdrawalRequest.findUnique({
+        where: { id: requestId },
+        include: { account: { include: { driver: true } } },
+      });
+      if (!wr || wr.status !== "PENDING") {
+        throw new Error("Request not found or already processed");
+      }
+      const amt = Number(wr.amount);
+      const bal = Number(wr.account.balance);
+      if (amt > bal) {
+        throw new Error("Insufficient driver balance to complete this withdrawal");
+      }
+      const nextBal = Math.round((bal - amt) * 100) / 100;
+      await tx.driverAccount.update({
+        where: { id: wr.driverAccountId },
+        data: { balance: nextBal },
+      });
+      await tx.driverTransaction.create({
+        data: {
+          accountId: wr.driverAccountId,
+          type: "WITHDRAWAL",
+          amount: -amt,
+          referenceId: wr.id,
+          referenceType: "WITHDRAWAL",
+          description: `Fiat payout completed (withdrawal request)`,
+          balanceAfter: nextBal,
+        },
+      });
+      await tx.driverWithdrawalRequest.update({
+        where: { id: wr.id },
+        data: {
+          status: "ACCEPTED",
+          processedAt: new Date(),
+          descriptionFromStaff:
+            typeof body?.adminNote === "string" && body.adminNote.trim()
+              ? body.adminNote.trim().slice(0, 2000)
+              : "Money sent (manual payout)",
+        },
+      });
+      const driverUserId = wr.account.driver?.userId;
+      if (!driverUserId) return null;
+      return {
+        userId: driverUserId,
+        amount: amt.toFixed(2),
+        currency: wr.account.currency,
+        payoutMethod: wr.payoutMethod === "CASH" ? "CASH" : "BANK_TRANSFER",
+        withdrawalRequestId: wr.id,
+      };
+    });
+
+    if (notify) {
+      void notifyUserFiatPayoutSent({
+        ...notify,
+        relatedEntityType: "DriverWithdrawalRequest",
+      });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    const code = e?.message === "Unauthorized" ? 401 : 400;
+    return NextResponse.json({ error: e?.message || "Failed" }, { status: code });
+  }
+}

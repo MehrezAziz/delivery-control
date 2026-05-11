@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle, Wallet, ShieldAlert, LineChart,
+  LayoutDashboard, Users, Truck, LogOut, Menu, X, Headphones, MessageSquare, Package, AlertTriangle, Wallet, ShieldAlert, LineChart, Smartphone,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -56,7 +56,11 @@ export default function CSLayout({ children }: { children: React.ReactNode }) {
     { href: "/cs/disputes", label: "Disputes", icon: AlertTriangle },
     { href: "/cs/order-arrival-conflicts", label: "Arrival incidents", icon: ShieldAlert },
     { href: "/cs/analytics", label: "Analytics", icon: LineChart },
+    { href: "/cs/device-push", label: "Mobile push (FCM)", icon: Smartphone },
     { href: "/cs/finances", label: "Finances", icon: Wallet },
+    ...(csRoles.includes("PROCESS_WITHDRAWALS") || csRoles.includes("MANAGE_FINANCIAL_REPORTS")
+      ? [{ href: "/cs/fiat-withdrawals", label: "Fiat payouts", icon: Wallet }]
+      : []),
   ];
 
   const isActive = (href: string) =>
