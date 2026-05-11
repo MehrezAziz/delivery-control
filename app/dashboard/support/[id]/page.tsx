@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSupportTicketLive } from "@/hooks/use-support-ticket-live";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,8 +53,8 @@ export default function AdminSupportChatPage() {
     finally { setLoading(false); }
   }, [id]);
 
-  useEffect(() => { loadTicket(); }, [loadTicket]);
-  useEffect(() => { const i = setInterval(loadTicket, 3000); return () => clearInterval(i); }, [loadTicket]);
+  const routeTicketId = Array.isArray(id) ? id[0] : id;
+  useSupportTicketLive(routeTicketId, loadTicket);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [ticket?.messages]);
 
   async function handleSend() {

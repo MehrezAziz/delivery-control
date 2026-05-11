@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSupportTicketLive } from "@/hooks/use-support-ticket-live";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,8 +54,8 @@ export default function CSSupportChatPage() {
     finally { setLoading(false); }
   }, [id]);
 
-  useEffect(() => { loadTicket(); }, [loadTicket]);
-  useEffect(() => { const i = setInterval(loadTicket, 3000); return () => clearInterval(i); }, [loadTicket]);
+  const routeTicketId = Array.isArray(id) ? id[0] : id;
+  useSupportTicketLive(routeTicketId, loadTicket);
 
   /** Mark company-reply notifications read for this ticket while CS is in the thread (badge / bell). */
   useEffect(() => {
