@@ -814,8 +814,26 @@ model Country {
   governorates    Governorate[]
   pricingPolicies CountryPricingPolicy[]
   digitalWallets  DigitalWallet[]
+  coinConfigs     CountryCoinConfig[]
 
   @@map("countries")
+}
+
+model CountryCoinConfig {
+  id               String    @id @default(uuid())
+  countryId        String    @map("country_id")
+  transferFeeBps   Int       @default(200) @map("transfer_fee_bps")
+  coinsPerFiatUnit Decimal  @default(1) @map("coins_per_fiat_unit") @db.Decimal(12, 4)
+  effectiveFrom    DateTime  @default(now()) @map("effective_from")
+  effectiveTo      DateTime? @map("effective_to")
+  isActive         Boolean   @default(true) @map("is_active")
+  promoLabel       String?   @map("promo_label")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@index([countryId, isActive, effectiveFrom])
+  @@map("country_coin_configs")
 }
 
 model Governorate {
