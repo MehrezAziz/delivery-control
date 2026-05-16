@@ -153,6 +153,8 @@ enum DriverTransactionType {
   REFUND
   DISPUTE_DEBIT
   DEPOSIT
+  COIN_TRANSFER_SENT
+  COIN_TRANSFER_RECEIVED
 }
 
 enum WalletTransactionType {
@@ -165,6 +167,8 @@ enum WalletTransactionType {
   BONUS
   REFERRAL_REWARD
   ADJUSTMENT
+  COIN_TRANSFER_SENT
+  COIN_TRANSFER_RECEIVED
 }
 
 enum TransactionStatus {
@@ -175,10 +179,23 @@ enum TransactionStatus {
 
 enum ReferenceType {
   STRIPE_TOPUP
+  FLOUCI_TOPUP
   ORDER
   REFERRAL
   WITHDRAWAL
   ADMIN_ADJUSTMENT
+  COIN_TRANSFER
+}
+
+enum CoinTopupSessionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum CoinTopupPayerRole {
+  CUSTOMER
+  DRIVER
 }
 
 enum ResponseType {
@@ -449,6 +466,7 @@ model User {
   sentMessages     Message[]
   supportTickets   SupportTicket[]
   payoutBankDetails UserPayoutBankDetails?
+  coinTopupSessions CoinTopupSession[]
 
   @@map("users")
 }
@@ -1361,6 +1379,8 @@ model DigitalWallet {
   id         String  @id @default(uuid())
   customerId String  @unique @map("customer_id")
   balance    Decimal @default(0) @db.Decimal(10, 2)
+  /// Coins reserved for outbound P2P transfers in PENDING / until settlement
+  lockedForTransfers Decimal @default(0) @map("locked_for_transfers") @db.Decimal(10, 2)
   currency   String  @default("TND")
   countryId  String  @map("country_id")
   discount   Decimal @default(0) @db.Decimal(10, 2)
@@ -1393,6 +1413,28 @@ model WalletTransaction {
 
   @@index([walletId, createdAt])
   @@map("wallet_transactions")
+}
+
+model CoinTopupSession {
+  id                  String                 @id @default(uuid())
+  userId              String                 @map("user_id")
+  payerRole           CoinTopupPayerRole     @map("payer_role")
+  countryId           String                 @map("country_id")
+  coinsAmount         Decimal                @map("coins_amount") @db.Decimal(12, 4)
+  fiatAmount          Decimal                @map("fiat_amount") @db.Decimal(14, 6)
+  fiatCurrencyCode    String                 @map("fiat_currency_code")
+  amountMillimes      Int                    @map("amount_millimes")
+  coinsPerFiatUnit    Decimal                @map("coins_per_fiat_unit") @db.Decimal(12, 4)
+  developerTrackingId String                 @unique @map("developer_tracking_id")
+  flouciPaymentId     String?                @unique @map("flouci_payment_id")
+  status              CoinTopupSessionStatus @default(PENDING)
+  createdAt           DateTime               @default(now()) @map("created_at")
+  completedAt         DateTime?              @map("completed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("coin_topup_sessions")
 }
 
 model WithdrawalRequest {

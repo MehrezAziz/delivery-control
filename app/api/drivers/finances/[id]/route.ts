@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CoinTopupPayerRole } from "@prisma/client";
 import { requireAuth, hasCSRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAction } from "@/lib/action-log";
 import { liftAllOpenRestrictionsForUserIds } from "@/lib/lift-open-restrictions";
+import {
+  buildDriverFinanceLedger,
+  fetchCoinTopupSessions,
+  financeApiErrorResponse,
+} from "@/lib/finance-ledger";
 
 // GET driver account detail with transactions
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,14 +37,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             },
           },
         },
-        transactions: {
-          orderBy: { createdAt: "desc" },
-          take: 50,
-        },
       },
     });
 
     if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+    const driverTxs = await prisma.driverTransaction.findMany({
+      where: { accountId: id },
+      orderBy: { createdAt: "desc" },
+    });
+    const topupSessions = await fetchCoinTopupSessions(
+      prisma,
+      account.driver.userId,
+      CoinTopupPayerRole.DRIVER,
+    );
+
+    const transactions = buildDriverFinanceLedger(driverTxs, topupSessions);
 
     // Calculate days remaining if balance is negative
     let negativeBalanceInfo: any = undefined;
@@ -73,19 +87,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       phone: account.driver.user.phone,
       driverStatus: account.driver.status,
       negativeBalanceInfo,
-      transactions: account.transactions.map(t => ({
-        id: t.id,
-        type: t.type,
-        amount: Number(t.amount),
-        referenceId: t.referenceId,
-        referenceType: t.referenceType,
-        description: t.description,
-        balanceAfter: Number(t.balanceAfter),
-        createdAt: t.createdAt,
-      })),
+      transactionCount: transactions.length,
+      transactions,
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 401 });
+  } catch (e: unknown) {
+    const { body, status } = financeApiErrorResponse(e);
+    return NextResponse.json(body, { status });
   }
 }
 

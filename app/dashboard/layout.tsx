@@ -18,6 +18,7 @@ const allNavItems = [
   { href: "/dashboard/users", label: "Users", icon: Users },
   { href: "/dashboard/drivers", label: "Driver Approval", icon: Truck },
   { href: "/dashboard/finances", label: "Driver Finances", icon: Wallet },
+  { href: "/dashboard/customer-finances", label: "Customer Finances", icon: Coins },
   { href: "/dashboard/fiat-withdrawals", label: "Fiat payouts", icon: DollarSign },
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/coin-config", label: "Country coin config", icon: Coins },

@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { FinanceLedgerTable } from "@/components/finance-ledger-table";
+import type { FinanceLedgerRow } from "@/lib/finance-ledger";
 
 interface DriverAccount {
   id: string;
@@ -19,36 +21,15 @@ interface DriverAccount {
   driverStatus: string;
 }
 
-interface Transaction {
-  id: string;
-  type: string;
-  amount: number;
-  referenceId: string | null;
-  referenceType: string | null;
-  description: string | null;
-  balanceAfter: number;
-  createdAt: string;
-}
-
-const TYPE_COLORS: Record<string, string> = {
-  PLATFORM_FEE: "bg-red-100 text-red-700",
-  DEPOSIT: "bg-green-100 text-green-700",
-  BONUS: "bg-blue-100 text-blue-700",
-  PENALTY: "bg-orange-100 text-orange-700",
-  ADJUSTMENT: "bg-purple-100 text-purple-700",
-  DISPUTE_DEBIT: "bg-red-100 text-red-700",
-  WITHDRAWAL: "bg-yellow-100 text-yellow-700",
-  REFUND: "bg-gray-100 text-gray-700",
-};
-
 export default function CSFinancesPage() {
   const [accounts, setAccounts] = useState<DriverAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [canManage, setCanManage] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<FinanceLedgerRow[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
+  const [txError, setTxError] = useState("");
 
   // Record transaction form state
   const [amount, setAmount] = useState("");
@@ -80,14 +61,21 @@ export default function CSFinancesPage() {
     if (expandedId === accountId) { setExpandedId(null); return; }
     setExpandedId(accountId);
     setTransactions([]);
+    setTxError("");
     setAmount(""); setDescription(""); setTxType("DEPOSIT");
     setFormError(""); setSuccess("");
     setLoadingTx(true);
     try {
-      const res = await fetch(`/api/drivers/finances/${accountId}`);
+      const res = await fetch(`/api/drivers/finances/${accountId}`, { credentials: "same-origin" });
       const data = await res.json();
+      if (!res.ok) {
+        setTxError(data.error || `Failed to load transactions (${res.status})`);
+        return;
+      }
       if (data.transactions) setTransactions(data.transactions);
-    } catch {} finally { setLoadingTx(false); }
+    } catch {
+      setTxError("Network error loading transactions");
+    } finally { setLoadingTx(false); }
   }
 
   async function handleSubmit(accountId: string) {
@@ -214,45 +202,14 @@ export default function CSFinancesPage() {
                         )}
                         {/* Transaction history */}
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold text-foreground">Recent Transactions</p>
-                          {loadingTx ? (
-                            <p className="text-sm text-muted-foreground">Loading...</p>
-                          ) : transactions.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No transactions yet</p>
-                          ) : (
-                            <div className="max-h-64 overflow-y-auto rounded border bg-card">
-                              <table className="w-full text-sm">
-                                <thead className="bg-muted sticky top-0">
-                                  <tr>
-                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Date</th>
-                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Type</th>
-                                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Amount</th>
-                                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Balance After</th>
-                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {transactions.map(tx => (
-                                    <tr key={tx.id} className="border-t">
-                                      <td className="px-3 py-2 text-muted-foreground">
-                                        {new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${TYPE_COLORS[tx.type] || "bg-gray-100 text-gray-700"}`}>
-                                          {tx.type.replace(/_/g, " ")}
-                                        </span>
-                                      </td>
-                                      <td className={`px-3 py-2 text-right font-medium ${tx.amount < 0 ? "text-red-600" : "text-green-600"}`}>
-                                        {tx.amount > 0 ? "+" : ""}{tx.amount.toFixed(2)}
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-muted-foreground">{tx.balanceAfter.toFixed(2)}</td>
-                                      <td className="px-3 py-2 text-muted-foreground max-w-[200px] truncate">{tx.description || "—"}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
+                          <p className="text-sm font-semibold text-foreground">All transactions</p>
+                          {txError ? <p className="text-sm text-red-500">{txError}</p> : null}
+                          <FinanceLedgerTable
+                            rows={transactions}
+                            loading={loadingTx}
+                            showStatus
+                            showOrder={false}
+                          />
                         </div>
                       </div>
                     </TableCell>
