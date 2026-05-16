@@ -38,6 +38,7 @@ export async function POST(
       logMeta: {
         requestId: string;
         amount: number;
+        grossDebit: number;
         currency: string;
         payoutMethod: "CASH" | "BANK_TRANSFER";
       };
