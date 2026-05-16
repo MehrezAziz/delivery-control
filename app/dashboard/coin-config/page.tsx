@@ -36,6 +36,7 @@ export default async function CoinConfigPage() {
     currencyCode: r.country.currencyCode,
     transferFeeBps: r.transferFeeBps,
     coinsPerFiatUnit: Number(r.coinsPerFiatUnit),
+    withdrawalFeeBps: r.withdrawalFeeBps ?? 0,
     isActive: r.isActive,
     promoLabel: r.promoLabel,
     effectiveFrom: r.effectiveFrom.toISOString(),

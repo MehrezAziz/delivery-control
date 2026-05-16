@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     countryIds?: string[];
     transferFeeBps?: number;
     coinsPerFiatUnit?: number;
+    withdrawalFeeBps?: number;
     isActive?: boolean;
     promoLabel?: string | null;
   };
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
 
   const transferFeeBps = body.transferFeeBps ?? 200;
   const coinsPerFiatUnit = body.coinsPerFiatUnit ?? 1;
+  const withdrawalFeeBps = Math.min(10000, Math.max(0, Math.floor(Number(body.withdrawalFeeBps ?? 0))));
   if (!Number.isFinite(transferFeeBps) || transferFeeBps < 0 || transferFeeBps > 10000) {
     return NextResponse.json({ error: "Transfer fee (bps) must be between 0 and 10000." }, { status: 400 });
   }
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest) {
       countryId,
       transferFeeBps,
       coinsPerFiatUnit,
+      withdrawalFeeBps,
       isActive,
       promoLabel,
     })),

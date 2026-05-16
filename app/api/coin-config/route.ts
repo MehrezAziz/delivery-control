@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       countryId: body.countryId,
       transferFeeBps: body.transferFeeBps ?? 200,
       coinsPerFiatUnit: body.coinsPerFiatUnit ?? 1,
+      withdrawalFeeBps: body.withdrawalFeeBps ?? 0,
       isActive: body.isActive ?? true,
       promoLabel: body.promoLabel ?? null,
       effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : new Date(),

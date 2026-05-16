@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { canProcessFiatWithdrawals } from "@/lib/staff-withdrawal-access";
+import { activeCoinsPerFiatByCountry, activeCoinsPerFiatByCurrencyCode } from "@/lib/active-coin-rates";
+import { buildFiatPayoutAmountView } from "@/lib/fiat-payout-display";
 
 /** Completed fiat payouts (money marked sent — ACCEPTED). */
 export async function GET() {
@@ -21,6 +23,7 @@ export async function GET() {
         include: {
           wallet: {
             include: {
+              country: { select: { id: true, currencyCode: true, currencySymbol: true } },
               customer: {
                 include: { user: { select: { id: true, firstName: true, secondName: true, phone: true } } },
               },
@@ -44,53 +47,97 @@ export async function GET() {
       }),
     ]);
 
-    const mapCustomer = (r: (typeof customerRows)[0]) => ({
-      id: r.id,
-      kind: "customer_wallet" as const,
-      amount: Number(r.amount),
-      payoutMethod: r.payoutMethod,
-      payoutBankHolderName: r.payoutBankHolderName,
-      payoutBankName: r.payoutBankName,
-      payoutBankAccountRef: r.payoutBankAccountRef,
-      description: r.descriptionOfCustomer,
-      requestedAt: r.requestedAt.toISOString(),
-      processedAt: r.processedAt ? r.processedAt.toISOString() : null,
-      walletCurrency: r.wallet.currency,
-      customer: r.wallet.customer
-        ? {
-            id: r.wallet.customer.id,
-            name: `${r.wallet.customer.user?.firstName || ""} ${r.wallet.customer.user?.secondName || ""}`.trim(),
-            phone: r.wallet.customer.user?.phone,
-            userId: r.wallet.customer.userId,
-          }
-        : null,
-    });
+    const customerCountryIds = [
+      ...new Set(customerRows.map((r) => r.wallet.countryId).filter(Boolean)),
+    ] as string[];
+    const driverCurrencies = [
+      ...new Set(driverRows.map((r) => r.account.currency).filter(Boolean)),
+    ] as string[];
 
-    const mapDriver = (r: (typeof driverRows)[0]) => ({
-      id: r.id,
-      kind: "driver_account" as const,
-      amount: Number(r.amount),
-      payoutMethod: r.payoutMethod,
-      payoutBankHolderName: r.payoutBankHolderName,
-      payoutBankName: r.payoutBankName,
-      payoutBankAccountRef: r.payoutBankAccountRef,
-      description: r.descriptionFromDriver,
-      requestedAt: r.requestedAt.toISOString(),
-      processedAt: r.processedAt ? r.processedAt.toISOString() : null,
-      accountCurrency: r.account.currency,
-      driver: r.account.driver
-        ? {
-            id: r.account.driver.id,
-            name: `${r.account.driver.user?.firstName || ""} ${r.account.driver.user?.secondName || ""}`.trim(),
-            phone: r.account.driver.user?.phone,
-            userId: r.account.driver.userId,
-          }
-        : null,
-    });
+    const [ratesByCountry, ratesByCurrency] = await Promise.all([
+      activeCoinsPerFiatByCountry(prisma, customerCountryIds),
+      activeCoinsPerFiatByCurrencyCode(prisma, driverCurrencies),
+    ]);
 
     return NextResponse.json({
-      customer: customerRows.map(mapCustomer),
-      driver: driverRows.map(mapDriver),
+      customer: customerRows.map((r) => {
+        const gross = Number(r.amount);
+        const fee = Number(r.feeAmount ?? 0);
+        const country = r.wallet.country;
+        const amounts = buildFiatPayoutAmountView(
+          gross,
+          fee,
+          country?.currencyCode ?? r.wallet.currency,
+          country?.currencySymbol ?? country?.currencyCode ?? r.wallet.currency,
+          ratesByCountry.get(r.wallet.countryId),
+        );
+        return {
+          id: r.id,
+          kind: "customer_wallet" as const,
+          amount: gross,
+          feeAmount: fee,
+          payoutMethod: r.payoutMethod,
+          payoutBankHolderName: r.payoutBankHolderName,
+          payoutBankName: r.payoutBankName,
+          payoutBankAccountRef: r.payoutBankAccountRef,
+          description: r.descriptionOfCustomer,
+          requestedAt: r.requestedAt.toISOString(),
+          processedAt: r.processedAt ? r.processedAt.toISOString() : null,
+          walletCurrency: r.wallet.currency,
+          currencyCode: amounts.currencyCode,
+          currencySymbol: amounts.currencySymbol,
+          netPayoutCoins: amounts.netCoins,
+          netPayoutFiat: amounts.netFiat,
+          grossDebitFiat: amounts.grossFiat,
+          customer: r.wallet.customer
+            ? {
+                id: r.wallet.customer.id,
+                name: `${r.wallet.customer.user?.firstName || ""} ${r.wallet.customer.user?.secondName || ""}`.trim(),
+                phone: r.wallet.customer.user?.phone,
+                userId: r.wallet.customer.userId,
+              }
+            : null,
+        };
+      }),
+      driver: driverRows.map((r) => {
+        const gross = Number(r.amount);
+        const fee = Number(r.feeAmount ?? 0);
+        const ccy = r.account.currency;
+        const amounts = buildFiatPayoutAmountView(
+          gross,
+          fee,
+          ccy,
+          ccy,
+          ratesByCurrency.get(ccy),
+        );
+        return {
+          id: r.id,
+          kind: "driver_account" as const,
+          amount: gross,
+          feeAmount: fee,
+          payoutMethod: r.payoutMethod,
+          payoutBankHolderName: r.payoutBankHolderName,
+          payoutBankName: r.payoutBankName,
+          payoutBankAccountRef: r.payoutBankAccountRef,
+          description: r.descriptionFromDriver,
+          requestedAt: r.requestedAt.toISOString(),
+          processedAt: r.processedAt ? r.processedAt.toISOString() : null,
+          accountCurrency: r.account.currency,
+          currencyCode: amounts.currencyCode,
+          currencySymbol: amounts.currencySymbol,
+          netPayoutCoins: amounts.netCoins,
+          netPayoutFiat: amounts.netFiat,
+          grossDebitFiat: amounts.grossFiat,
+          driver: r.account.driver
+            ? {
+                id: r.account.driver.id,
+                name: `${r.account.driver.user?.firstName || ""} ${r.account.driver.user?.secondName || ""}`.trim(),
+                phone: r.account.driver.user?.phone,
+                userId: r.account.driver.userId,
+              }
+            : null,
+        };
+      }),
     });
   } catch (e: unknown) {
     const msg = e instanceof Error && e.message === "Unauthorized" ? 401 : 500;

@@ -23,6 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: {
     transferFeeBps?: number;
     coinsPerFiatUnit?: number;
+    withdrawalFeeBps?: number;
     isActive?: boolean;
     promoLabel?: string | null;
     effectiveFrom?: Date;
@@ -30,6 +31,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   } = {};
   if (body.transferFeeBps !== undefined) data.transferFeeBps = Number(body.transferFeeBps);
   if (body.coinsPerFiatUnit !== undefined) data.coinsPerFiatUnit = Number(body.coinsPerFiatUnit);
+  if (body.withdrawalFeeBps !== undefined) {
+    const bps = Math.floor(Number(body.withdrawalFeeBps));
+    data.withdrawalFeeBps = Math.min(10000, Math.max(0, bps));
+  }
   if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
   if (body.promoLabel !== undefined) data.promoLabel = body.promoLabel === "" ? null : String(body.promoLabel);
   if (body.effectiveFrom != null) data.effectiveFrom = new Date(body.effectiveFrom);

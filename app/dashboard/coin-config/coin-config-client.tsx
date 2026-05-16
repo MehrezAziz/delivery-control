@@ -32,10 +32,24 @@ interface ConfigRow {
   currencyCode: string;
   transferFeeBps: number;
   coinsPerFiatUnit: number;
+  withdrawalFeeBps: number;
   isActive: boolean;
   promoLabel: string | null;
   effectiveFrom: string;
   effectiveTo: string | null;
+}
+
+/** 250 bps → "2.5" for % input */
+function bpsToPercentStr(bps: number): string {
+  const p = bps / 100;
+  if (p === 0) return "0";
+  return Number.isInteger(p) ? String(p) : String(Math.round(p * 100) / 100);
+}
+
+function percentStrToBps(percent: string): number {
+  const p = parseFloat(percent);
+  if (!Number.isFinite(p) || p < 0) return NaN;
+  return Math.min(10000, Math.round(p * 100));
 }
 
 export default function CoinConfigClient({
@@ -51,6 +65,7 @@ export default function CoinConfigClient({
   const [selectedCountryIds, setSelectedCountryIds] = useState<string[]>([]);
   const [bulkFeeBps, setBulkFeeBps] = useState("200");
   const [bulkCoinsPerFiat, setBulkCoinsPerFiat] = useState("1");
+  const [bulkWithdrawalFee, setBulkWithdrawalFee] = useState("0");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkSuccess, setBulkSuccess] = useState("");
 
@@ -59,7 +74,10 @@ export default function CoinConfigClient({
   const [newCountryId, setNewCountryId] = useState<string>("");
   const [newFeeBps, setNewFeeBps] = useState("200");
   const [newCoinsPerFiat, setNewCoinsPerFiat] = useState("1");
-  const [drafts, setDrafts] = useState<Record<string, { fee: string; coins: string; active: boolean; promo: string }>>(
+  const [newWithdrawalFee, setNewWithdrawalFee] = useState("0");
+  const [drafts, setDrafts] = useState<
+    Record<string, { fee: string; coins: string; withdrawalFee: string; active: boolean; promo: string }>
+  >(
     {},
   );
 
@@ -106,12 +124,17 @@ export default function CoinConfigClient({
     }
     const fee = parseInt(bulkFeeBps, 10);
     const coins = parseFloat(bulkCoinsPerFiat);
+    const wdBps = percentStrToBps(bulkWithdrawalFee);
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) {
       alert("Transfer fee (basis points) must be between 0 and 10000.");
       return;
     }
     if (!Number.isFinite(coins) || coins <= 0) {
       alert("Coins per 1.00 fiat must be a positive number.");
+      return;
+    }
+    if (!Number.isFinite(wdBps)) {
+      alert("Withdrawal fee (%) must be between 0 and 100.");
       return;
     }
     setBulkLoading(true);
@@ -123,6 +146,7 @@ export default function CoinConfigClient({
           countryIds: selectedCountryIds,
           transferFeeBps: fee,
           coinsPerFiatUnit: coins,
+          withdrawalFeeBps: wdBps,
           isActive: true,
         }),
       });
@@ -144,18 +168,23 @@ export default function CoinConfigClient({
     return {
       fee: String(c.transferFeeBps),
       coins: String(c.coinsPerFiatUnit),
+      withdrawalFee: bpsToPercentStr(c.withdrawalFeeBps ?? 0),
       active: c.isActive,
       promo: c.promoLabel ?? "",
     };
   }
 
-  function setDraft(id: string, patch: Partial<{ fee: string; coins: string; active: boolean; promo: string }>) {
+  function setDraft(
+    id: string,
+    patch: Partial<{ fee: string; coins: string; withdrawalFee: string; active: boolean; promo: string }>,
+  ) {
     setDrafts((prev) => {
       const row = configs.find((x) => x.id === id);
       if (!row) return prev;
       const cur = prev[id] ?? {
         fee: String(row.transferFeeBps),
         coins: String(row.coinsPerFiatUnit),
+        withdrawalFee: bpsToPercentStr(row.withdrawalFeeBps ?? 0),
         active: row.isActive,
         promo: row.promoLabel ?? "",
       };
@@ -167,12 +196,17 @@ export default function CoinConfigClient({
     const d = draftFor(c.id, c);
     const fee = parseInt(d.fee, 10);
     const coins = parseFloat(d.coins);
+    const wdBps = percentStrToBps(d.withdrawalFee);
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) {
       alert("Transfer fee (basis points) must be between 0 and 10000.");
       return;
     }
     if (!Number.isFinite(coins) || coins <= 0) {
       alert("Coins per 1.00 fiat must be a positive number.");
+      return;
+    }
+    if (!Number.isFinite(wdBps)) {
+      alert("Withdrawal fee (%) must be between 0 and 100.");
       return;
     }
     setSavingId(c.id);
@@ -183,6 +217,7 @@ export default function CoinConfigClient({
         body: JSON.stringify({
           transferFeeBps: fee,
           coinsPerFiatUnit: coins,
+          withdrawalFeeBps: wdBps,
           isActive: d.active,
           promoLabel: d.promo.trim() || null,
         }),
@@ -211,12 +246,17 @@ export default function CoinConfigClient({
     }
     const fee = parseInt(newFeeBps, 10);
     const coins = parseFloat(newCoinsPerFiat);
+    const wdBps = percentStrToBps(newWithdrawalFee);
     if (!Number.isFinite(fee) || fee < 0 || fee > 10000) {
       alert("Transfer fee (basis points) must be between 0 and 10000.");
       return;
     }
     if (!Number.isFinite(coins) || coins <= 0) {
       alert("Coins per 1.00 fiat must be a positive number.");
+      return;
+    }
+    if (!Number.isFinite(wdBps)) {
+      alert("Withdrawal fee (%) must be between 0 and 100.");
       return;
     }
     setCreating(true);
@@ -228,6 +268,7 @@ export default function CoinConfigClient({
           countryId: newCountryId,
           transferFeeBps: fee,
           coinsPerFiatUnit: coins,
+          withdrawalFeeBps: wdBps,
           isActive: true,
         }),
       });
@@ -266,6 +307,11 @@ export default function CoinConfigClient({
             <strong>wallet coins</strong>, one <strong>1.00</strong> unit of that country’s currency (e.g.{" "}
             <strong>1.00 TND</strong>) converts to this many coins. Example: <strong>10</strong> means 1.00 unit of fiat
             → 10 coins.
+          </li>
+          <li>
+            <strong>Withdrawal fee (%)</strong> — percentage deducted from the amount the user withdraws (not added on top).
+            Example: user withdraws <strong>100</strong> coins at <strong>2%</strong> → <strong>98</strong> paid out,{" "}
+            <strong>100</strong> debited from wallet.
           </li>
         </ul>
       </div>
@@ -333,6 +379,12 @@ export default function CoinConfigClient({
               />
               <p className="text-xs text-muted-foreground">1.00 local unit → coins</p>
             </div>
+            
+            <div className="space-y-2 w-40">
+              <Label>Withdrawal fee (%)</Label>
+              <Input type="number" step="0.01" min={0} max={100} value={bulkWithdrawalFee} onChange={(e) => setBulkWithdrawalFee(e.target.value)} />
+              <p className="text-xs text-muted-foreground">e.g. 2.5 = 2.5%</p>
+            </div>
             <Button
               type="button"
               onClick={() => void applyBulkCreate()}
@@ -379,6 +431,12 @@ export default function CoinConfigClient({
               onChange={(e) => setNewCoinsPerFiat(e.target.value)}
             />
           </div>
+          
+          <div className="space-y-2 w-40">
+            <Label>Withdrawal fee (%)</Label>
+            <Input type="number" step="0.01" min={0} max={100} value={newWithdrawalFee} onChange={(e) => setNewWithdrawalFee(e.target.value)} />
+            <p className="text-xs text-muted-foreground">e.g. 2.5 = 2.5%</p>
+          </div>
           <Button onClick={() => void createRow()} disabled={creating || !newCountryId || countries.length === 0}>
             {creating ? "Creating…" : "Create"}
           </Button>
@@ -411,6 +469,11 @@ export default function CoinConfigClient({
                   <th className="p-3 align-top">
                     <div>Coins / 1.00 fiat</div>
                     <div className="text-xs font-normal text-muted-foreground mt-0.5">Cash → coins</div>
+                  </th>
+                  
+                  <th className="p-3 align-top">
+                    <div>Withdrawal fee</div>
+                    <div className="text-xs font-normal text-muted-foreground mt-0.5">%</div>
                   </th>
                   <th className="p-3">Active</th>
                   <th className="p-3">Promo label</th>
@@ -449,6 +512,10 @@ export default function CoinConfigClient({
                           value={d.coins}
                           onChange={(e) => setDraft(c.id, { coins: e.target.value })}
                         />
+                      </td>
+                      
+                      <td className="p-3">
+                        <Input type="number" step="0.01" min={0} max={100} className="w-24" value={d.withdrawalFee} onChange={(e) => setDraft(c.id, { withdrawalFee: e.target.value })} />
                       </td>
                       <td className="p-3">
                         <input

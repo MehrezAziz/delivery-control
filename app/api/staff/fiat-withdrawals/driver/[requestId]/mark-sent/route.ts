@@ -20,6 +20,11 @@ export async function POST(
       return NextResponse.json({ error: "confirm must be true" }, { status: 400 });
     }
 
+    const adminNote =
+      typeof body?.adminNote === "string" && body.adminNote.trim()
+        ? body.adminNote.trim().slice(0, 2000)
+        : "";
+
     type NotifyPayload = {
       userId: string;
       amount: string;
@@ -46,12 +51,21 @@ export async function POST(
       if (!wr || wr.status !== "PENDING") {
         throw new Error("Request not found or already processed");
       }
-      const amt = Number(wr.amount);
+      const payoutMethod = wr.payoutMethod === "CASH" ? "CASH" : "BANK_TRANSFER";
+      if (payoutMethod === "CASH" && !adminNote) {
+        throw new Error("Internal note is required for cash payouts");
+      }
+      const grossDebit = Number(wr.amount);
+      const fee = Number(wr.feeAmount ?? 0);
+      const netPayout = Math.round((grossDebit - fee) * 100) / 100;
       const bal = Number(wr.account.balance);
-      if (amt > bal) {
+      if (grossDebit > bal) {
         throw new Error("Insufficient driver balance to complete this withdrawal");
       }
-      const nextBal = Math.round((bal - amt) * 100) / 100;
+      if (netPayout <= 0) {
+        throw new Error("Invalid withdrawal: payout amount after fee is zero");
+      }
+      const nextBal = Math.round((bal - grossDebit) * 100) / 100;
       await tx.driverAccount.update({
         where: { id: wr.driverAccountId },
         data: { balance: nextBal },
@@ -60,7 +74,7 @@ export async function POST(
         data: {
           accountId: wr.driverAccountId,
           type: "WITHDRAWAL",
-          amount: -amt,
+          amount: -grossDebit,
           referenceId: wr.id,
           referenceType: "WITHDRAWAL",
           description: `Fiat payout completed (withdrawal request)`,
@@ -72,18 +86,14 @@ export async function POST(
         data: {
           status: "ACCEPTED",
           processedAt: new Date(),
-          descriptionFromStaff:
-            typeof body?.adminNote === "string" && body.adminNote.trim()
-              ? body.adminNote.trim().slice(0, 2000)
-              : "Money sent (manual payout)",
+          descriptionFromStaff: adminNote || "Money sent (manual payout)",
         },
       });
       const driverUserId = wr.account.driver?.userId;
-      const payoutMethod = wr.payoutMethod === "CASH" ? "CASH" : "BANK_TRANSFER";
       const notifyPayload: NotifyPayload | null = driverUserId
         ? {
             userId: driverUserId,
-            amount: amt.toFixed(2),
+            amount: netPayout.toFixed(2),
             currency: wr.account.currency,
             payoutMethod,
             withdrawalRequestId: wr.id,
@@ -93,7 +103,8 @@ export async function POST(
         notify: notifyPayload,
         logMeta: {
           requestId: wr.id,
-          amount: amt,
+          amount: netPayout,
+          grossDebit,
           currency: wr.account.currency,
           payoutMethod,
         },
@@ -107,8 +118,7 @@ export async function POST(
       });
     }
 
-    const noteTrim =
-      typeof body?.adminNote === "string" && body.adminNote.trim() ? body.adminNote.trim().slice(0, 2000) : null;
+    const noteTrim = adminNote || null;
     try {
       await logAction({
         actorId: auth.superUserId,
