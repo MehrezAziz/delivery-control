@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       driverButtonPlacement: body.driverButtonPlacement,
       bannerImageUrls: body.bannerImageUrls ?? [],
       showRecentWinners: body.showRecentWinners ?? true,
+      endsAt: body.endsAt ? new Date(body.endsAt) : null,
       countries: {
         create: (body.countryIds ?? []).map((countryId: string) => ({ countryId })),
       },

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
 import { serializeGame } from "@/lib/games-admin";
+import { getCurrentPeriodEnd } from "@/lib/games-period";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -34,12 +35,19 @@ export async function GET(_req: NextRequest, { params }: Params) {
     select: { userId: true },
   });
 
+  const nextDrawAt = getCurrentPeriodEnd(game);
+  const endsAt = (game as { endsAt?: Date | null }).endsAt ?? null;
+  const hasEnded = !!endsAt && endsAt.getTime() <= Date.now();
+
   return NextResponse.json({
     ...serializeGame(game),
     lowQuestionPool,
     participantsCount: game._count.accessGrants,
     playedCount: playedRows.length,
     answersCount: game._count.answers,
+    nextDrawAt,
+    endsAt,
+    hasEnded,
     accessCodePlain: (game as unknown as { accessCodePlain: string | null }).accessCodePlain ?? null,
     previousAccessCodePlain:
       (game as unknown as { previousAccessCodePlain: string | null }).previousAccessCodePlain ?? null,
@@ -111,6 +119,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         : {}),
       ...(body.bannerImageUrls !== undefined ? { bannerImageUrls: body.bannerImageUrls } : {}),
       ...(body.showRecentWinners !== undefined ? { showRecentWinners: body.showRecentWinners } : {}),
+      ...(body.endsAt !== undefined
+        ? { endsAt: body.endsAt ? new Date(body.endsAt) : null }
+        : {}),
     },
     include: {
       countries: { include: { country: true } },

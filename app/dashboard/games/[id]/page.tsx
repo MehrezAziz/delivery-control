@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy, Search } from "lucide-react";
+import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy, Search, Clock, CalendarX } from "lucide-react";
 import { ImageUpload, MultiImageUpload } from "@/components/admin/image-upload";
 import { getAdminAssetUrl } from "@/lib/asset-url";
 
@@ -48,6 +48,27 @@ const SCHEDULE_MODES = [
   { value: "CALENDAR_DAYS", label: "Specific calendar days (1–31)" },
   { value: "WEEKDAYS", label: "Specific weekdays (Sun–Sat)" },
 ];
+
+function formatHumanCountdown(targetIso: string): string {
+  const ms = new Date(targetIso).getTime() - Date.now();
+  if (ms <= 0) return "any moment now";
+  const days = Math.floor(ms / 86_400_000);
+  const hours = Math.floor((ms % 86_400_000) / 3_600_000);
+  const mins = Math.floor((ms % 3_600_000) / 60_000);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (days === 0) parts.push(`${mins}m`);
+  return parts.join(" ");
+}
+
+function toLocalDatetimeInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 type Category = { id: string; name: string; isActive: boolean; sortOrder: number };
 type Option = { id?: string; text: string; imageUrl?: string | null; isCorrect: boolean };
@@ -99,6 +120,9 @@ type GameDetail = {
   participantsCount?: number;
   playedCount?: number;
   answersCount?: number;
+  nextDrawAt?: string | null;
+  endsAt?: string | null;
+  hasEnded?: boolean;
 };
 
 export default function GameDetailPage() {
@@ -141,6 +165,13 @@ export default function GameDetailPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Re-render every 30s so countdowns stay accurate.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const patchGame = async (data: Record<string, unknown>) => {
     const res = await fetch(`/api/games/${id}`, {
@@ -214,7 +245,7 @@ export default function GameDetailPage() {
       alert("Choose a category");
       return;
     }
-    if (!qText.trim() && !qImage.trim()) {
+    if (!qText.trim() && !qImage) {
       alert("Question must have text or image");
       return;
     }
@@ -233,7 +264,7 @@ export default function GameDetailPage() {
       body: JSON.stringify({
         categoryId: qCategoryId,
         text: qText.trim() || null,
-        imageUrl: qImage,
+        imageUrl: qImage ?? null,
         options: filled,
       }),
     });
@@ -299,11 +330,48 @@ export default function GameDetailPage() {
       </div>
 
       <h1 className="text-2xl font-bold">{game.name}</h1>
+      {game.hasEnded && (
+        <p className="text-red-600 text-sm font-medium">
+          This game has ended on {game.endsAt ? new Date(game.endsAt).toLocaleString() : "—"} and is hidden from users.
+        </p>
+      )}
       {game.lowQuestionPool && (
         <p className="text-amber-600 text-sm font-medium">
           Warning: fewer active questions than daily limit.
         </p>
       )}
+
+      {/* NEXT WINNER COUNTDOWN */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Time to next winner
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {game.hasEnded ? (
+            <p className="text-sm text-muted-foreground">Game has ended — no more draws.</p>
+          ) : game.nextDrawAt ? (
+            <>
+              <p className="text-3xl font-bold tabular-nums">
+                {formatHumanCountdown(game.nextDrawAt)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Next draw runs at {new Date(game.nextDrawAt).toLocaleString()} (Tunisia time)
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">No upcoming draw scheduled.</p>
+          )}
+          {game.endsAt && !game.hasEnded && (
+            <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+              <CalendarX className="h-3.5 w-3.5" />
+              Game ends on {new Date(game.endsAt).toLocaleString()}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* PARTICIPATION STATS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -704,13 +772,17 @@ function SettingsPanel({
     showRecentWinners: game.showRecentWinners,
     countryIds: game.countries.map((c) => c.countryId),
     bannerImageUrls: game.bannerImageUrls,
+    endsAt: toLocalDatetimeInput(game.endsAt ?? null),
   });
   const [countrySearch, setCountrySearch] = useState("");
 
   const submit = async () => {
     setSaving(true);
     try {
-      await patchGame(form);
+      await patchGame({
+        ...form,
+        endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
+      });
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -956,6 +1028,34 @@ function SettingsPanel({
           onChange={(urls) => setForm({ ...form, bannerImageUrls: urls })}
           hint="Shown on the game landing screen. Up to 8 images."
         />
+
+        <div>
+          <Label className="flex items-center gap-2">
+            <CalendarX className="h-4 w-4" />
+            End date (optional)
+          </Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input
+              type="datetime-local"
+              value={form.endsAt}
+              onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+            />
+            {form.endsAt && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setForm({ ...form, endsAt: "" })}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            After this moment the game stops accepting new participation and is hidden from users.
+            Leave empty to keep the game running indefinitely.
+          </p>
+        </div>
 
         <label className="flex items-center gap-2 text-sm">
           <input
