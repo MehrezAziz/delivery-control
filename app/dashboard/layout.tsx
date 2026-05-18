@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet, Bot, Smartphone, Coins,
+  LayoutDashboard, Users, Truck, DollarSign, Shield, Settings, UserPlus, LogOut, Menu, X, ClipboardList, MessageSquare, Package, AlertTriangle, Wallet, Bot, Smartphone, Coins, Gamepad2,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -22,6 +22,7 @@ const allNavItems = [
   { href: "/dashboard/fiat-withdrawals", label: "Fiat payouts", icon: DollarSign },
   { href: "/dashboard/pricing", label: "Country Pricing", icon: DollarSign },
   { href: "/dashboard/coin-config", label: "Country coin config", icon: Coins },
+  { href: "/dashboard/games", label: "Games", icon: Gamepad2 },
   { href: "/dashboard/customer-service", label: "Customer Service", icon: UserPlus },
   { href: "/dashboard/delivery-companies", label: "Delivery Companies", icon: Truck },
   { href: "/dashboard/delivery-companies/refunds", label: "Company Refund Approvals", icon: DollarSign },

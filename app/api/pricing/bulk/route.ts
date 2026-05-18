@@ -5,6 +5,14 @@ import { logAction } from "@/lib/action-log";
 
 const ZONE_TYPES = ["SAME_DELEGATION", "SAME_GOVERNORATE", "DIFFERENT_GOVERNORATE", "DIFFERENT_COUNTRY"] as const;
 
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function referralCommissionFrom(baseFee: number, platformFee: number) {
+  return round2(baseFee - platformFee);
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
   const { countryIds, zones } = await req.json() as {
@@ -39,6 +47,7 @@ export async function POST(req: NextRequest) {
             extraWeightPrice: values.extraWeightPrice,
             nightFee: values.nightFee,
             platformFee: values.platformFee,
+            referralCommission: referralCommissionFrom(values.baseFee, values.platformFee),
             maxNegativeDays: values.maxNegativeDays,
           },
         });
@@ -55,6 +64,7 @@ export async function POST(req: NextRequest) {
             extraWeightPrice: values.extraWeightPrice,
             nightFee: values.nightFee,
             platformFee: values.platformFee,
+            referralCommission: referralCommissionFrom(values.baseFee, values.platformFee),
             maxNegativeDays: values.maxNegativeDays,
           },
         });

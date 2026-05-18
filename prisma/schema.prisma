@@ -24,6 +24,11 @@ enum UserGender {
   FEMALE
 }
 
+enum PasswordResetChannel {
+  EMAIL
+  WHATSAPP
+}
+
 enum SuperUserRole {
   ADMIN
   CUSTOMER_SERVICE
@@ -53,6 +58,8 @@ enum DriverStatus {
 
 enum OrderStatus {
   DRAFT
+  /// Customer chose a future time — drivers do not see the order until publish.
+  PENDING_PUBLISH
   SEARCHING_DRIVER
   PENDING_CUSTOMER_APPROVAL
   DRIVER_ASSIGNED
@@ -62,11 +69,11 @@ enum OrderStatus {
   RETURNED
   RETURN_DEPOSIT
   DELIVERED
+  AUTO_CANCELLED
   CANCELLED
   REFUNDED
   FAILED
   DISPUTED
-  AUTO_CANCELLED
 }
 
 enum PaymentType {
@@ -155,6 +162,7 @@ enum DriverTransactionType {
   DEPOSIT
   COIN_TRANSFER_SENT
   COIN_TRANSFER_RECEIVED
+  GAME_PRIZE
 }
 
 enum WalletTransactionType {
@@ -169,6 +177,7 @@ enum WalletTransactionType {
   ADJUSTMENT
   COIN_TRANSFER_SENT
   COIN_TRANSFER_RECEIVED
+  GAME_PRIZE
 }
 
 enum TransactionStatus {
@@ -183,6 +192,7 @@ enum ReferenceType {
   ORDER
   REFERRAL
   WITHDRAWAL
+  GAME_PRIZE
   ADMIN_ADJUSTMENT
   COIN_TRANSFER
 }
@@ -196,6 +206,14 @@ enum CoinTopupSessionStatus {
 enum CoinTopupPayerRole {
   CUSTOMER
   DRIVER
+}
+
+enum CoinTransferStatus {
+  SCHEDULED
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum ResponseType {
@@ -301,6 +319,9 @@ enum NotificationType {
   ORDER_PAYMENT_DEDUCTED
   REFUND_PROCESSED
   WITHDRAWAL_STATUS
+  COIN_TRANSFER_RECEIVED
+  COIN_TRANSFER_OUTBOUND_COMPLETED
+  COIN_TRANSFER_CANCELLED
   // Customer - Referral
   REFERRAL_BONUS
   REFERRED_FRIEND_REGISTERED
@@ -373,6 +394,10 @@ enum NotificationType {
   CUSTOMER_REJECTED_ARRIVED_DRIVER_CS
   CUSTOMER_REJECTED_ARRIVED_DRIVER_TO_DRIVER
   ARRIVAL_CONFLICT_DRIVER_FEEDBACK_CS
+  // Games
+  GAME_WINNER
+  GAME_DRAW_COMPLETED
+  GAME_REMINDER
 }
 
 enum NotificationPriority {
@@ -456,6 +481,9 @@ model User {
   role        UserRole
   fcmToken    String?     @map("fcm_token")
   fcmPlatform String?     @map("fcm_platform") // 'android' or 'ios'
+  /// Optional identity / security verification doc (e.g. base64 image) — Settings → Security
+  securityVerificationDocument    String?   @map("security_verification_document") @db.Text
+  securityVerificationSubmittedAt DateTime? @map("security_verification_submitted_at")
   createdAt   DateTime    @default(now()) @map("created_at")
 
   // Relations
@@ -465,8 +493,13 @@ model User {
   userRestrictions UserRestriction[]
   sentMessages     Message[]
   supportTickets   SupportTicket[]
-  payoutBankDetails UserPayoutBankDetails?
-  coinTopupSessions CoinTopupSession[]
+  passwordResetSessions PasswordResetSession[]
+  payoutBankDetails    UserPayoutBankDetails?
+  transferPin            UserTransferPin?
+  transferStepUpChallenges TransferStepUpChallenge[]
+  coinTransfersSent      CoinTransfer[] @relation("CoinTransferSender")
+  coinTransfersReceived   CoinTransfer[] @relation("CoinTransferRecipient")
+  coinTopupSessions      CoinTopupSession[]
 
   @@map("users")
 }
@@ -483,6 +516,22 @@ model UserPayoutBankDetails {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_payout_bank_details")
+}
+
+model PasswordResetSession {
+  id         String               @id @default(uuid())
+  userId     String               @map("user_id")
+  channel    PasswordResetChannel
+  codeHash   String               @map("code_hash")
+  expiresAt  DateTime             @map("expires_at")
+  attempts   Int                  @default(0)
+  lastSentAt DateTime             @map("last_sent_at")
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_sessions")
 }
 
 model SuperUser {
@@ -515,7 +564,9 @@ model Customer {
   completedOrders  Int            @default(0) @map("completed_orders")
   customerStatus   CustomerStatus @default(CREATED) @map("customer_status")
   referredByCodeId String?        @map("referred_by_code_id")
-  termsAcceptedAt  DateTime?      @map("terms_accepted_at")
+  termsAcceptedAt            DateTime? @map("terms_accepted_at")
+  notifyReferralCommission   Boolean   @default(true) @map("notify_referral_commission")
+  notifyGameEvents           Boolean   @default(false) @map("notify_game_events")
 
   // Relations
   user                      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -541,7 +592,9 @@ model Driver {
   approvedAt  DateTime?    @map("approved_at")
   suspendedAt DateTime?    @map("suspended_at")
   description String?
+  notifyGameEvents             Boolean    @default(false) @map("notify_game_events")
 
+  /// Saved liveness evidence (JSON) when driver completes challenge but not yet document submit; expires after 24h.
   pendingLivenessSession       Json?      @map("pending_liveness_session")
   pendingVerificationSelfieUrl String?    @map("pending_verification_selfie_url")
   pendingLivenessExpiresAt     DateTime?  @map("pending_liveness_expires_at")
@@ -560,6 +613,7 @@ model Driver {
   orderRejections          OrderDriverRejection[]
   urgentNotifyTargets      OrderUrgentNotifyTarget[]
   arrivalConflicts         OrderDriverArrivalConflict[]
+  returnDepositFeedbacks   OrderReturnDepositFeedback[]
 
   @@map("drivers")
 }
@@ -596,6 +650,8 @@ model DriverAccount {
   id                  String   @id @default(uuid())
   driverId            String   @unique @map("driver_id")
   balance             Decimal  @default(0) @db.Decimal(10, 2) // Can be negative (debt)
+  /// Coins reserved for outbound P2P transfers until completed or cancelled
+  lockedForTransfers Decimal @default(0) @map("locked_for_transfers") @db.Decimal(10, 2)
   currency            String   @default("TND")
   avgDeliveryTime     Int?     @map("avg_delivery_time") // in minutes
   completedDeliveries Int      @default(0) @map("completed_deliveries")
@@ -604,33 +660,11 @@ model DriverAccount {
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   // Relations
-  driver                   Driver                     @relation(fields: [driverId], references: [id], onDelete: Cascade)
-  transactions             DriverTransaction[]
+  driver                 Driver                     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  transactions           DriverTransaction[]
   driverWithdrawalRequests DriverWithdrawalRequest[]
 
   @@map("driver_accounts")
-}
-
-model DriverWithdrawalRequest {
-  id                    String           @id @default(uuid())
-  driverAccountId       String           @map("driver_account_id")
-  amount                Decimal          @db.Decimal(10, 2)
-  feeAmount             Decimal          @default(0) @map("fee_amount") @db.Decimal(10, 2)
-  status                ResponseType     @default(PENDING)
-  payoutMethod          FiatPayoutMethod @default(BANK_TRANSFER) @map("payout_method")
-  payoutBankHolderName  String?          @map("payout_bank_holder_name")
-  payoutBankName        String?          @map("payout_bank_name")
-  payoutBankAccountRef  String?          @map("payout_bank_account_ref")
-  descriptionFromDriver String?          @map("description_from_driver")
-  descriptionFromStaff String?         @map("description_from_staff")
-  rejectionReason       String?          @map("rejection_reason")
-  requestedAt           DateTime         @default(now()) @map("requested_at")
-  processedAt           DateTime?        @map("processed_at")
-
-  account DriverAccount @relation(fields: [driverAccountId], references: [id], onDelete: Cascade)
-
-  @@index([driverAccountId, requestedAt])
-  @@map("driver_withdrawal_requests")
 }
 
 model DriverTransaction {
@@ -649,6 +683,28 @@ model DriverTransaction {
 
   @@index([accountId, createdAt])
   @@map("driver_transactions")
+}
+
+model DriverWithdrawalRequest {
+  id                     String           @id @default(uuid())
+  driverAccountId        String           @map("driver_account_id")
+  amount                 Decimal          @db.Decimal(10, 2)
+  feeAmount              Decimal          @default(0) @map("fee_amount") @db.Decimal(10, 2)
+  status                 ResponseType     @default(PENDING)
+  payoutMethod           FiatPayoutMethod @default(BANK_TRANSFER) @map("payout_method")
+  payoutBankHolderName   String?          @map("payout_bank_holder_name")
+  payoutBankName         String?          @map("payout_bank_name")
+  payoutBankAccountRef   String?          @map("payout_bank_account_ref")
+  descriptionFromDriver  String?          @map("description_from_driver")
+  descriptionFromStaff   String?          @map("description_from_staff")
+  rejectionReason        String?          @map("rejection_reason")
+  requestedAt            DateTime         @default(now()) @map("requested_at")
+  processedAt            DateTime?        @map("processed_at")
+
+  account DriverAccount @relation(fields: [driverAccountId], references: [id], onDelete: Cascade)
+
+  @@index([driverAccountId, requestedAt])
+  @@map("driver_withdrawal_requests")
 }
 
 // ============================================
@@ -730,7 +786,9 @@ model Document {
   placeOfBirth       String?            @map("place_of_birth")
   dateOfIssue        DateTime?          @map("date_of_issue") @db.Date()
   mlAnalysis         Json?              @map("ml_analysis")
+  /// BCP 47 locale code used for stored translations (e.g. en).
   translationLocale  String?            @map("translation_locale")
+  /// Original + Google-translated declared vs OCR fields for staff review and audit.
   translationData    Json?              @map("translation_data")
 
   // Relations
@@ -789,6 +847,7 @@ model DriverCard {
   documentId     String @unique @map("document_id")
   classification String
 
+  // Relations
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@map("driver_cards")
@@ -804,7 +863,7 @@ model DriverPerformanceMetrics {
   totalOrders            Int      @default(0) @map("total_orders")
   completedOrders        Int      @default(0) @map("completed_orders")
   cancelledOrders        Int      @default(0) @map("cancelled_orders")
-  avgRating              Decimal? @db.Decimal(4, 2) @map("avg_rating")
+  avgRating              Decimal? @db.Decimal(4, 2) @map("avg_rating") // 0–10 scale; (3,2) max was 9.99 and overflowed at 10.0
   avgDeliveryTimeMinutes Int?     @map("avg_delivery_time_minutes")
   completionRate         Decimal? @db.Decimal(5, 2) @map("completion_rate") // percentage
   onTimeRate             Decimal? @db.Decimal(5, 2) @map("on_time_rate") // percentage
@@ -835,26 +894,9 @@ model Country {
   pricingPolicies CountryPricingPolicy[]
   digitalWallets  DigitalWallet[]
   coinConfigs     CountryCoinConfig[]
+  gameCountries   GameCountry[]
 
   @@map("countries")
-}
-
-model CountryCoinConfig {
-  id               String    @id @default(uuid())
-  countryId        String    @map("country_id")
-  transferFeeBps   Int       @default(200) @map("transfer_fee_bps")
-  coinsPerFiatUnit Decimal  @default(1) @map("coins_per_fiat_unit") @db.Decimal(12, 4)
-  withdrawalFeeBps Int      @default(0) @map("withdrawal_fee_bps")
-  effectiveFrom    DateTime  @default(now()) @map("effective_from")
-  effectiveTo      DateTime? @map("effective_to")
-  isActive         Boolean   @default(true) @map("is_active")
-  promoLabel       String?   @map("promo_label")
-  createdAt        DateTime  @default(now()) @map("created_at")
-
-  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
-
-  @@index([countryId, isActive, effectiveFrom])
-  @@map("country_coin_configs")
 }
 
 model Governorate {
@@ -863,9 +905,9 @@ model Governorate {
   countryId       String @map("country_id")
 
   // Relations
-  country                     Country                      @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  delegations                 Delegation[]
-  customerServiceGovernorates CustomerServiceGovernorate[]
+  country                      Country                      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  delegations                  Delegation[]
+  customerServiceGovernorates  CustomerServiceGovernorate[]
 
   @@map("governorates")
 }
@@ -877,9 +919,9 @@ model Delegation {
   governorateId               String @map("governorate_id")
 
   // Relations
-  governorate              Governorate              @relation(fields: [governorateId], references: [id], onDelete: Cascade)
-  addresses                Address[]
-  deliveryCompanyAddresses DeliveryCompanyAddress[]
+  governorate                 Governorate                 @relation(fields: [governorateId], references: [id], onDelete: Cascade)
+  addresses                   Address[]
+  deliveryCompanyAddresses    DeliveryCompanyAddress[]
 
   @@map("delegations")
 }
@@ -889,6 +931,7 @@ model Address {
   latitude     Float?
   longitude    Float?
   street       String?
+  /// Customer-chosen label e.g. "house of my father" (saved addresses only)
   nickname     String? @map("nickname")
   delegationId String  @map("delegation_id")
   userId       String? @map("user_id")
@@ -915,6 +958,8 @@ model CountryPricingPolicy {
   extraWeightPrice Decimal           @map("extra_weight_price") @db.Decimal(10, 2)
   nightFee         Decimal           @map("night_fee") @db.Decimal(10, 2)
   platformFee      Decimal           @map("platform_fee") @db.Decimal(10, 2)
+  /// Referral slice of base fee: invariant `base_fee = platform_fee + referral_commission`
+  referralCommission Decimal         @map("referral_commission") @db.Decimal(10, 2)
   maxNegativeDays  Int               @map("max_negative_days")
   deliveryZoneType DeliveryZoneType? @map("delivery_zone_type")
   isActive         Boolean           @default(true) @map("is_active")
@@ -943,18 +988,25 @@ model Order {
   description       String?
   weight            Decimal     @db.Decimal(10, 2)
   distanceKm        Decimal     @db.Decimal(10, 2) @map("distance_km")
-  price             Decimal     @db.Decimal(10, 2)
+  price             Decimal     @db.Decimal(10, 3)
   sourceType        OrderSourceType @default(NORMAL_CUSTOMER) @map("source_type")
   deliveryCompanyId String?     @map("delivery_company_id")
   deliveryCompanyDepartmentId String? @map("delivery_company_department_id")
+  /// Department portal user who placed this company order (null = main admin / API without account context).
+  deliveryCompanyDepartmentAccountId String? @map("delivery_company_department_account_id")
   nightFee          Decimal     @default(0) @db.Decimal(10, 2) @map("night_fee")
   extraWeightFee    Decimal     @default(0) @db.Decimal(10, 2) @map("extra_weight_fee")
   cancelAfterMinutes Int        @default(15) @map("cancel_after_minutes")
+  /// Remaining auto-cancel seconds while order is searching for a driver.
   cancelTimerRemainingSeconds Int @default(900) @map("cancel_timer_remaining_seconds")
+  /// Last timestamp when auto-cancel countdown resumed in SEARCHING_DRIVER.
   cancelTimerLastResumedAt   DateTime? @map("cancel_timer_last_resumed_at")
+  /// Timestamp when auto-cancel countdown was paused.
   cancelTimerPausedAt        DateTime? @map("cancel_timer_paused_at")
   isNightDelivery   Boolean     @default(false) @map("is_night_delivery")
+  /// Pickup at customer location only; driver brings goods from within delegation (≤2 km pricing)
   localPickupOnly   Boolean     @default(false) @map("local_pickup_only")
+  /// Optional extra amount chosen by customer (e.g. long errand / service time). Charged price = calculated + this.
   customerExtraAmount Decimal   @default(0) @db.Decimal(10, 2) @map("customer_extra_amount")
   guestCheckout     Boolean     @default(false) @map("guest_checkout")
   trackingToken     String?     @unique @map("tracking_token")
@@ -964,11 +1016,14 @@ model Order {
   urgentNotifyCycleStartedAt  DateTime? @map("urgent_notify_cycle_started_at")
   urgentNotifyLastButtonAt    DateTime? @map("urgent_notify_last_button_at")
   urgentNotifyCycleId         String?   @map("urgent_notify_cycle_id")
+  /// When status is PENDING_PUBLISH, drivers become eligible at this instant (UTC).
+  scheduledPublishAt DateTime? @map("scheduled_publish_at")
 
   // Relations
   customer            Customer              @relation(fields: [customerId], references: [id])
   deliveryCompany     DeliveryCompany?      @relation(fields: [deliveryCompanyId], references: [id])
   deliveryCompanyDepartment DeliveryCompanyAddress? @relation(fields: [deliveryCompanyDepartmentId], references: [id], onDelete: SetNull)
+  createdByDepartmentAccount DeliveryCompanyDepartmentAccount? @relation(fields: [deliveryCompanyDepartmentAccountId], references: [id], onDelete: SetNull)
   pricingPolicy       CountryPricingPolicy  @relation(fields: [pricingPolicyId], references: [id])
   pickupAddress       Address?              @relation("PickupAddress", fields: [pickupAddressId], references: [id])
   dropoffAddress      Address?              @relation("DropoffAddress", fields: [dropoffAddressId], references: [id])
@@ -983,11 +1038,13 @@ model Order {
   driverRejections    OrderDriverRejection[]
   urgentNotifyTargets OrderUrgentNotifyTarget[]
   arrivalConflict     OrderDriverArrivalConflict?
+  returnDepositFeedbacks OrderReturnDepositFeedback[]
   deliveryCompanyTransactions DeliveryCompanyTransaction[]
 
   @@index([customerId, status])
   @@index([deliveryCompanyId, status])
   @@index([deliveryCompanyDepartmentId, status])
+  @@index([deliveryCompanyDepartmentAccountId])
   @@index([status, createdAt])
   @@map("orders")
 }
@@ -1004,8 +1061,9 @@ model DeliveryCompany {
   defaultRefundDestinationType DeliveryCompanyRefundDestinationType? @map("default_refund_destination_type")
   defaultDiscountPercent  Decimal?             @db.Decimal(5, 2) @map("default_discount_percent")
   maxNegativeBalance      Decimal              @default(0) @db.Decimal(10, 2) @map("max_negative_balance")
-  coinBalance             Decimal              @default(0) @db.Decimal(12, 2) @map("coin_balance")
-  lockedCoins             Decimal              @default(0) @db.Decimal(12, 2) @map("locked_coins")
+  coinBalance             Decimal              @default(0) @db.Decimal(12, 3) @map("coin_balance")
+  lockedCoins             Decimal              @default(0) @db.Decimal(12, 3) @map("locked_coins")
+  /// Last path reported by main company portal (suppress duplicate order-created inbox noise).
   companyPortalPresencePath String?          @map("company_portal_presence_path")
   companyPortalPresenceAt   DateTime?        @map("company_portal_presence_at")
   proxyCustomerId         String?              @unique @map("proxy_customer_id")
@@ -1062,6 +1120,7 @@ model DeliveryCompanyAddress {
   longitude         Float?
   isMainDepartment  Boolean  @default(false) @map("is_main_department")
   isDefault         Boolean  @default(false) @map("is_default")
+  /// Company's geographic scope (main department delegation) — used for CS finance scoping.
   delegationId      String?  @map("delegation_id")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
@@ -1123,7 +1182,7 @@ model DeliveryCompanyApiKey {
 model DeliveryCompanyRefundRequest {
   id                String                                @id @default(uuid())
   deliveryCompanyId String                                @map("delivery_company_id")
-  amountCoins       Decimal                               @db.Decimal(12, 2) @map("amount_coins")
+  amountCoins       Decimal                               @db.Decimal(12, 3) @map("amount_coins")
   amountMoney       Decimal                               @db.Decimal(12, 2) @map("amount_money")
   destinationType   DeliveryCompanyRefundDestinationType  @map("destination_type")
   status            DeliveryCompanyRefundStatus           @default(PENDING)
@@ -1145,8 +1204,8 @@ model DeliveryCompanyTransaction {
   deliveryCompanyId String                         @map("delivery_company_id")
   orderId           String?                        @map("order_id")
   type              DeliveryCompanyTransactionType
-  amount            Decimal                        @db.Decimal(12, 2)
-  balanceAfter      Decimal                        @db.Decimal(12, 2) @map("balance_after")
+  amount            Decimal                        @db.Decimal(12, 3)
+  balanceAfter      Decimal                        @db.Decimal(12, 3) @map("balance_after")
   description       String?
   createdAt         DateTime                       @default(now()) @map("created_at")
 
@@ -1167,7 +1226,6 @@ model DeliveryCompanyDepartmentAccount {
   role              DeliveryCompanyDepartmentAccountRole  @map("role")
   status            DeliveryCompanyDepartmentAccountStatus @default(ACTIVE)
   lastLoginAt       DateTime?                             @map("last_login_at")
-  /// Last path reported by the company portal (used to suppress duplicate notifications while user is on Orders).
   portalPresencePath String?                            @map("portal_presence_path")
   portalPresenceAt   DateTime?                          @map("portal_presence_at")
   createdAt         DateTime                              @default(now()) @map("created_at")
@@ -1178,6 +1236,7 @@ model DeliveryCompanyDepartmentAccount {
   budgetPolicy      DeliveryCompanyDepartmentBudgetPolicy?
   scheduledBudgetTransfers DeliveryCompanyScheduledBudgetTransfer[]
   budgetRequestsAuthored DeliveryCompanyDepartmentBudgetRequest[] @relation("BudgetRequestRequester")
+  ordersCreated          Order[]
 
   @@unique([deliveryCompanyId, email])
   @@index([departmentId, status])
@@ -1208,7 +1267,7 @@ model DeliveryCompanyScheduledBudgetTransfer {
   id                    String                           @id @default(uuid())
   deliveryCompanyId     String                           @map("delivery_company_id")
   departmentAccountId   String                           @map("department_account_id")
-  amountCoins           Decimal                          @db.Decimal(12, 2) @map("amount_coins")
+  amountCoins           Decimal                          @db.Decimal(12, 3) @map("amount_coins")
   cadence               DeliveryCompanyScheduledBudgetCadence @map("cadence")
   nextRunAt             DateTime                         @map("next_run_at")
   lastRunAt             DateTime?                        @map("last_run_at")
@@ -1229,8 +1288,8 @@ model DeliveryCompanyDepartmentBudgetWallet {
   id                String            @id @default(uuid())
   deliveryCompanyId String            @map("delivery_company_id")
   departmentId      String            @unique @map("department_id")
-  availableCoins    Decimal           @default(0) @db.Decimal(12, 2) @map("available_coins")
-  lockedCoins       Decimal           @default(0) @db.Decimal(12, 2) @map("locked_coins")
+  availableCoins    Decimal           @default(0) @db.Decimal(12, 3) @map("available_coins")
+  lockedCoins       Decimal           @default(0) @db.Decimal(12, 3) @map("locked_coins")
   periodStart       DateTime?         @map("period_start")
   periodEnd         DateTime?         @map("period_end")
   createdAt         DateTime          @default(now()) @map("created_at")
@@ -1248,7 +1307,7 @@ model DeliveryCompanyDepartmentBudgetRequest {
   deliveryCompanyId     String                               @map("delivery_company_id")
   departmentId          String                               @map("department_id")
   requestedByAccountId  String?                              @map("requested_by_account_id")
-  amountCoins           Decimal                              @db.Decimal(12, 2) @map("amount_coins")
+  amountCoins           Decimal                              @db.Decimal(12, 3) @map("amount_coins")
   priority              DeliveryCompanyBudgetRequestPriority @default(NORMAL)
   status                DeliveryCompanyBudgetRequestStatus   @default(PENDING)
   decisionNote          String?                              @map("decision_note")
@@ -1284,6 +1343,23 @@ model DeliveryCompanyIdempotencyKey {
   @@index([deliveryCompanyId, createdAt])
   @@index([expiresAt])
   @@map("delivery_company_idempotency_keys")
+}
+
+model OrderReturnDepositFeedback {
+  id               String   @id @default(uuid())
+  orderId          String   @map("order_id")
+  driverId         String?  @map("driver_id")
+  reportedByUserId String   @map("reported_by_user_id")
+  conditionIssue   Boolean  @default(false) @map("condition_issue")
+  feedback         String   @map("feedback")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  order  Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  driver Driver? @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, driverId])
+  @@index([reportedByUserId, createdAt])
+  @@map("order_return_deposit_feedbacks")
 }
 
 model CustomerServiceGovernorate {
@@ -1349,6 +1425,9 @@ model DriverAssignment {
   cancelledBy       String?   @map("cancelled_by") // userId who cancelled
   cancellationReason String?  @map("cancellation_reason")
   notificationSentAt DateTime? @map("notification_sent_at")
+  /// How many times the driver called the customer before marking returned (optional).
+  customerCallCountBeforeReturn Int?     @map("customer_call_count_before_return")
+  returnEvidenceImageUrl        String?  @map("return_evidence_image_url")
 
   // Relations
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1418,28 +1497,6 @@ model WalletTransaction {
   @@map("wallet_transactions")
 }
 
-model CoinTopupSession {
-  id                  String                 @id @default(uuid())
-  userId              String                 @map("user_id")
-  payerRole           CoinTopupPayerRole     @map("payer_role")
-  countryId           String                 @map("country_id")
-  coinsAmount         Decimal                @map("coins_amount") @db.Decimal(12, 4)
-  fiatAmount          Decimal                @map("fiat_amount") @db.Decimal(14, 6)
-  fiatCurrencyCode    String                 @map("fiat_currency_code")
-  amountMillimes      Int                    @map("amount_millimes")
-  coinsPerFiatUnit    Decimal                @map("coins_per_fiat_unit") @db.Decimal(12, 4)
-  developerTrackingId String                 @unique @map("developer_tracking_id")
-  flouciPaymentId     String?                @unique @map("flouci_payment_id")
-  status              CoinTopupSessionStatus @default(PENDING)
-  createdAt           DateTime               @default(now()) @map("created_at")
-  completedAt         DateTime?              @map("completed_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status, createdAt])
-  @@map("coin_topup_sessions")
-}
-
 model WithdrawalRequest {
   id                    String           @id @default(uuid())
   walletId              String           @map("wallet_id")
@@ -1460,6 +1517,128 @@ model WithdrawalRequest {
   wallet DigitalWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@map("withdrawal_requests")
+}
+
+// ============================================
+// COIN P2P & CONFIG
+// ============================================
+
+model CountryCoinConfig {
+  id              String    @id @default(uuid())
+  countryId       String    @map("country_id")
+  /// Platform fee on P2P transfers in basis points (e.g. 200 = 2%)
+  transferFeeBps  Int       @default(200) @map("transfer_fee_bps")
+  /// Wallet coins credited per 1.00 unit of this country’s fiat when converting cash (e.g. COD) to coins
+  coinsPerFiatUnit Decimal  @default(1) @map("coins_per_fiat_unit") @db.Decimal(12, 4)
+  /// Platform fee on fiat withdrawal requests in basis points (e.g. 250 = 2.5% of payout amount)
+  withdrawalFeeBps Int      @default(0) @map("withdrawal_fee_bps")
+  effectiveFrom   DateTime  @default(now()) @map("effective_from")
+  effectiveTo     DateTime? @map("effective_to")
+  isActive        Boolean   @default(true) @map("is_active")
+  promoLabel      String?   @map("promo_label")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@index([countryId, isActive, effectiveFrom])
+  @@map("country_coin_configs")
+}
+
+model CoinTopupSession {
+  id                  String                @id @default(uuid())
+  userId              String                @map("user_id")
+  payerRole           CoinTopupPayerRole    @map("payer_role")
+  countryId           String                @map("country_id")
+  coinsAmount         Decimal               @map("coins_amount") @db.Decimal(12, 4)
+  fiatAmount          Decimal               @map("fiat_amount") @db.Decimal(14, 6)
+  fiatCurrencyCode    String                @map("fiat_currency_code")
+  amountMillimes      Int                   @map("amount_millimes")
+  coinsPerFiatUnit    Decimal               @map("coins_per_fiat_unit") @db.Decimal(12, 4)
+  developerTrackingId String                @unique @map("developer_tracking_id")
+  flouciPaymentId     String?               @unique @map("flouci_payment_id")
+  checkoutUrl         String?               @map("checkout_url")
+  status              CoinTopupSessionStatus @default(PENDING)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  completedAt         DateTime?             @map("completed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("coin_topup_sessions")
+}
+
+model UserTransferPin {
+  userId         String    @id @map("user_id")
+  pinHash        String    @map("pin_hash")
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_transfer_pins")
+}
+
+model TransferStepUpChallenge {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("transfer_step_up_challenges")
+}
+
+model CoinTransfer {
+  id                 String             @id @default(uuid())
+  senderUserId       String             @map("sender_user_id")
+  recipientUserId    String             @map("recipient_user_id")
+  grossCoins         Decimal            @map("gross_coins") @db.Decimal(12, 2)
+  feeCoins           Decimal            @map("fee_coins") @db.Decimal(12, 2)
+  netCoins           Decimal            @map("net_coins") @db.Decimal(12, 2)
+  feeBps             Int                @map("fee_bps")
+  status             CoinTransferStatus @default(PENDING)
+  giftMessage        String?            @map("gift_message") @db.VarChar(500)
+  scheduledAt        DateTime?          @map("scheduled_at")
+  pendingUntil       DateTime?          @map("pending_until")
+  idempotencyKey     String?            @unique @map("idempotency_key")
+  senderCountryId    String             @map("sender_country_id")
+  recipientCountryId String             @map("recipient_country_id")
+  clientIp           String?            @map("client_ip") @db.VarChar(64)
+  deviceId           String?            @map("device_id") @db.VarChar(128)
+  completedAt        DateTime?          @map("completed_at")
+  cancelledAt        DateTime?          @map("cancelled_at")
+  failedReason       String?            @map("failed_reason") @db.VarChar(500)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  sender    User @relation("CoinTransferSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  recipient User @relation("CoinTransferRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  reports   CoinTransferReport[]
+
+  @@index([senderUserId, createdAt])
+  @@index([recipientUserId, createdAt])
+  @@index([status, pendingUntil])
+  @@index([status, scheduledAt])
+  @@map("coin_transfers")
+}
+
+model CoinTransferReport {
+  id             String   @id @default(uuid())
+  transferId     String   @map("transfer_id")
+  reporterUserId String   @map("reporter_user_id")
+  note           String?  @db.VarChar(1000)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  transfer CoinTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@index([reporterUserId, createdAt])
+  @@map("coin_transfer_reports")
 }
 
 // ============================================
@@ -1623,7 +1802,7 @@ model SupportTicket {
   priority    SupportTicketPriority
   status      SupportTicketStatus   @default(OPEN)
   description String
-  /// Set when user requests a human; avoids duplicate admin notifications.
+  /// Set when user requests a human; used to avoid duplicate admin notifications.
   humanEscalationNotifiedAt DateTime? @map("human_escalation_notified_at")
   createdAt   DateTime              @default(now()) @map("created_at")
   resolvedAt  DateTime?             @map("resolved_at")
@@ -1650,42 +1829,11 @@ model SupportMessage {
   timestamp  DateTime @default(now())
   readAt     DateTime? @map("read_at")
 
+  // Relations
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId, timestamp])
   @@map("support_messages")
-}
-
-// ============================================
-// AI SUPPORT (ops / audit) — same tables as delivery-backend
-// ============================================
-
-model AiSupportToolLog {
-  id         String   @id @default(uuid())
-  ticketId   String   @map("ticket_id")
-  userId     String   @map("user_id")
-  toolName   String   @map("tool_name")
-  durationMs Int      @map("duration_ms")
-  success    Boolean
-  errorCode  String?  @map("error_code")
-  model      String
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@index([ticketId, createdAt])
-  @@index([createdAt])
-  @@map("ai_support_tool_logs")
-}
-
-model AiSupportFeedback {
-  id        String   @id @default(uuid())
-  messageId String   @unique @map("message_id")
-  ticketId  String   @map("ticket_id")
-  userId    String   @map("user_id")
-  helpful   Boolean
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([ticketId])
-  @@map("ai_support_feedback")
 }
 
 // ============================================
@@ -1717,7 +1865,7 @@ model UserRestriction {
 model Notification {
   id                  String                     @id @default(uuid())
   userId              String                     @map("user_id")
-  userType            String                     @map("user_type") // 'USER' or 'SUPER_USER'
+  userType            String                     @map("user_type") 
   title               String
   body                String
   type                NotificationType
@@ -1732,6 +1880,7 @@ model Notification {
   readAt              DateTime?                  @map("read_at")
   deliveryStatus      NotificationDeliveryStatus @default(PENDING) @map("delivery_status")
   failureReason       String?                    @map("failure_reason")
+  /// Mobile inbox / preview: e.g. `{ "suppressDriverOrderNavigation": true }` when driver must not open order detail.
   notificationMetadata Json?                   @map("notification_metadata")
 
   // Relations removed — userId is polymorphic (can be User or SuperUser)
@@ -1742,6 +1891,316 @@ model Notification {
   @@index([groupKey])
   @@index([type])
   @@map("notifications")
+}
+
+// ============================================
+// GAMES (QUIZ & FUTURE TYPES)
+// ============================================
+
+enum GameType {
+  QUIZ
+}
+
+enum GameScheduleMode {
+  ALL_DAYS
+  CALENDAR_DAYS
+  WEEKDAYS
+}
+
+enum GamePeriodMode {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum GameCustomPeriodAnchor {
+  ROLLING
+  FIXED_BLOCKS
+}
+
+enum GameWinnerSelectionMode {
+  RANDOM
+  MANUAL
+  RANDOM_CONFIRM
+}
+
+enum GamePrizeType {
+  COINS
+  PHYSICAL
+}
+
+enum GameCoinCreditMode {
+  AUTO_ON_CONFIRM
+  MANUAL
+}
+
+enum GameWinnerPoolMode {
+  COMBINED
+  SEPARATE_BY_ROLE
+}
+
+enum GameButtonPlacement {
+  CUSTOMER_HOME
+  CUSTOMER_WALLET
+  CUSTOMER_ORDERS
+  CUSTOMER_PROFILE
+  CUSTOMER_SETTINGS
+  CUSTOMER_SUPPORT
+  DRIVER_HOME
+  DRIVER_EARNINGS
+  DRIVER_TRANSACTIONS
+  DRIVER_PROFILE
+  DRIVER_SETTINGS
+  DRIVER_SUPPORT
+  DRIVER_MY_ORDERS
+}
+
+enum GameDrawStatus {
+  OPEN
+  AWAITING_CONFIRM
+  CONFIRMED
+  CANCELLED
+}
+
+enum GameWinnerStatus {
+  PENDING_CONFIRM
+  CONFIRMED
+  PRIZE_CREDITED
+  REJECTED
+}
+
+enum GamePhysicalPrizeStatus {
+  PENDING_CONTACT
+  CLAIMED
+}
+
+model Game {
+  id                     String                  @id @default(uuid())
+  type                   GameType                @default(QUIZ)
+  name                   String
+  description            String?                 @db.Text
+  isActive               Boolean                 @default(false) @map("is_active")
+  scheduleMode           GameScheduleMode        @default(ALL_DAYS) @map("schedule_mode")
+  /// Days of month (1–31) when scheduleMode = CALENDAR_DAYS
+  calendarDays           Int[]                   @default([]) @map("calendar_days")
+  /// 0=Sunday … 6=Saturday when scheduleMode = WEEKDAYS
+  weekdays               Int[]                   @default([]) @map("weekdays")
+  periodMode             GamePeriodMode          @default(DAILY) @map("period_mode")
+  customPeriodDays       Int?                    @map("custom_period_days")
+  customPeriodAnchor     GameCustomPeriodAnchor? @map("custom_period_anchor")
+  questionsPerDay        Int                     @default(5) @map("questions_per_day")
+  accessCodeHash         String                  @map("access_code_hash")
+  /// Plain 6-digit code, kept so admins can view the current code at any time. Admin-only access.
+  accessCodePlain        String?                 @map("access_code_plain")
+  /// Previous plain code, kept so admins can still see the prior code after rotation.
+  previousAccessCodePlain String?                @map("previous_access_code_plain")
+  accessCodeVersion      Int                     @default(1) @map("access_code_version")
+  requireCompletedOrder  Boolean                 @default(false) @map("require_completed_order")
+  winnerSelectionMode    GameWinnerSelectionMode @default(RANDOM) @map("winner_selection_mode")
+  coinCreditMode         GameCoinCreditMode      @default(AUTO_ON_CONFIRM) @map("coin_credit_mode")
+  winnerPoolMode         GameWinnerPoolMode      @default(COMBINED) @map("winner_pool_mode")
+  customerButtonPlacement GameButtonPlacement    @map("customer_button_placement")
+  driverButtonPlacement   GameButtonPlacement    @map("driver_button_placement")
+  /// Gallery images shown on game landing (URLs)
+  bannerImageUrls        String[]                @default([]) @map("banner_image_urls")
+  showRecentWinners      Boolean                 @default(true) @map("show_recent_winners")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  countries   GameCountry[]
+  prizeTiers  GamePrizeTier[]
+  categories  GameCategory[]
+  questions   GameQuestion[]
+  accessGrants GameAccess[]
+  codeAttempts GameCodeAttempt[]
+  answers     GameAnswer[]
+  dailyShown  GameDailyQuestionShown[]
+  draws       GameDraw[]
+  winners     GameWinner[]
+
+  @@map("games")
+}
+
+model GameCountry {
+  id        String @id @default(uuid())
+  gameId    String @map("game_id")
+  countryId String @map("country_id")
+
+  game    Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, countryId])
+  @@map("game_countries")
+}
+
+model GamePrizeTier {
+  id              String          @id @default(uuid())
+  gameId          String          @map("game_id")
+  rank            Int
+  prizeType       GamePrizeType   @map("prize_type")
+  coinAmount      Decimal?        @map("coin_amount") @db.Decimal(10, 2)
+  prizeLabel      String?         @map("prize_label")
+  prizeImageUrl   String?         @map("prize_image_url")
+  congratsImageUrl String?        @map("congrats_image_url")
+
+  game    Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  winners GameWinner[]
+
+  @@unique([gameId, rank])
+  @@map("game_prize_tiers")
+}
+
+model GameCategory {
+  id        String   @id @default(uuid())
+  gameId    String   @map("game_id")
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  game      Game           @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  questions GameQuestion[]
+
+  @@map("game_categories")
+}
+
+model GameQuestion {
+  id         String   @id @default(uuid())
+  gameId     String   @map("game_id")
+  categoryId String   @map("category_id")
+  text       String?  @db.Text
+  imageUrl   String?  @map("image_url")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  game     Game              @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  category GameCategory      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  options  GameQuestionOption[]
+  answers  GameAnswer[]
+  dailyShown GameDailyQuestionShown[]
+
+  @@index([gameId, isActive])
+  @@map("game_questions")
+}
+
+model GameQuestionOption {
+  id         String  @id @default(uuid())
+  questionId String  @map("question_id")
+  text       String?
+  imageUrl   String? @map("image_url")
+  isCorrect  Boolean @default(false) @map("is_correct")
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  question GameQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  GameAnswer[]
+
+  @@map("game_question_options")
+}
+
+model GameAccess {
+  id                  String   @id @default(uuid())
+  gameId              String   @map("game_id")
+  userId              String   @map("user_id")
+  accessCodeVersion   Int      @map("access_code_version")
+  unlockedAt          DateTime @default(now()) @map("unlocked_at")
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, userId])
+  @@index([userId])
+  @@map("game_access")
+}
+
+model GameCodeAttempt {
+  id           String    @id @default(uuid())
+  gameId       String    @map("game_id")
+  userId       String    @map("user_id")
+  failedAttempts Int     @default(0) @map("failed_attempts")
+  lockedUntil  DateTime? @map("locked_until")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, userId])
+  @@map("game_code_attempts")
+}
+
+model GameAnswer {
+  id               String   @id @default(uuid())
+  gameId           String   @map("game_id")
+  userId           String   @map("user_id")
+  questionId       String   @map("question_id")
+  selectedOptionId String   @map("selected_option_id")
+  isCorrect        Boolean  @map("is_correct")
+  tunisiaDateKey   String   @map("tunisia_date_key")
+  answeredAt       DateTime @default(now()) @map("answered_at")
+
+  game           Game               @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  question       GameQuestion       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOption GameQuestionOption @relation(fields: [selectedOptionId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, userId, tunisiaDateKey])
+  @@index([gameId, userId, answeredAt])
+  @@map("game_answers")
+}
+
+model GameDailyQuestionShown {
+  id             String @id @default(uuid())
+  gameId         String @map("game_id")
+  userId         String @map("user_id")
+  questionId     String @map("question_id")
+  tunisiaDateKey String @map("tunisia_date_key")
+
+  game     Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  question GameQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, userId, questionId, tunisiaDateKey])
+  @@map("game_daily_question_shown")
+}
+
+model GameDraw {
+  id              String         @id @default(uuid())
+  gameId          String         @map("game_id")
+  periodStart     DateTime       @map("period_start")
+  periodEnd         DateTime       @map("period_end")
+  status          GameDrawStatus @default(OPEN)
+  /// COMBINED | CUSTOMER | DRIVER when winnerPoolMode = SEPARATE_BY_ROLE
+  poolScope       String         @default("COMBINED") @map("pool_scope")
+  confirmDeadline DateTime?      @map("confirm_deadline")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  closedAt        DateTime?      @map("closed_at")
+
+  game    Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  winners GameWinner[]
+
+  @@index([gameId, periodEnd])
+  @@map("game_draws")
+}
+
+model GameWinner {
+  id                    String                   @id @default(uuid())
+  gameId                String                   @map("game_id")
+  drawId                String                   @map("draw_id")
+  userId                String                   @map("user_id")
+  userRole              UserRole                 @map("user_role")
+  prizeTierId           String                   @map("prize_tier_id")
+  status                GameWinnerStatus         @default(PENDING_CONFIRM)
+  physicalPrizeStatus   GamePhysicalPrizeStatus? @map("physical_prize_status")
+  correctCountInPeriod  Int                      @default(0) @map("correct_count_in_period")
+  congratsShownAt       DateTime?                @map("congrats_shown_at")
+  wonAt                 DateTime                 @default(now()) @map("won_at")
+  confirmedAt           DateTime?                @map("confirmed_at")
+  creditedAt            DateTime?                @map("credited_at")
+
+  game      Game          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  draw      GameDraw      @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  prizeTier GamePrizeTier @relation(fields: [prizeTierId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, userId])
+  @@index([drawId])
+  @@map("game_winners")
 }
 
 // ============================================
@@ -1758,6 +2217,38 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("system_configs")
+}
+
+// ============================================
+// AI SUPPORT (ops / audit)
+// ============================================
+
+model AiSupportToolLog {
+  id         String   @id @default(uuid())
+  ticketId   String   @map("ticket_id")
+  userId     String   @map("user_id")
+  toolName   String   @map("tool_name")
+  durationMs Int      @map("duration_ms")
+  success    Boolean
+  errorCode  String?  @map("error_code")
+  model      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@index([createdAt])
+  @@map("ai_support_tool_logs")
+}
+
+model AiSupportFeedback {
+  id        String   @id @default(uuid())
+  messageId String   @unique @map("message_id")
+  ticketId  String   @map("ticket_id")
+  userId    String   @map("user_id")
+  helpful   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ticketId])
+  @@map("ai_support_feedback")
 }
 
 // ============================================

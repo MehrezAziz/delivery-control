@@ -39,6 +39,7 @@ type TopupRow = {
   coinsPerFiatUnit: unknown;
   developerTrackingId: string;
   flouciPaymentId: string | null;
+  checkoutUrl: string | null;
   status: string;
   createdAt: Date;
   completedAt: Date | null;
@@ -127,6 +128,7 @@ function toCoinTopupSession(row: TopupRow): CoinTopupSession {
     coinsPerFiatUnit: row.coinsPerFiatUnit as CoinTopupSession["coinsPerFiatUnit"],
     developerTrackingId: row.developerTrackingId,
     flouciPaymentId: row.flouciPaymentId,
+    checkoutUrl: row.checkoutUrl ?? null,
     status: row.status as CoinTopupSessionStatus,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
@@ -151,6 +153,7 @@ async function fetchCoinTopupSessionsRaw(
       coins_per_fiat_unit AS "coinsPerFiatUnit",
       developer_tracking_id AS "developerTrackingId",
       flouci_payment_id AS "flouciPaymentId",
+      checkout_url AS "checkoutUrl",
       status::text AS status,
       created_at AS "createdAt",
       completed_at AS "completedAt"

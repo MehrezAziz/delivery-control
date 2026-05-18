@@ -3,9 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import { logAction } from "@/lib/action-log";
 
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
   const body = await req.json();
+
+  const baseFee = Number(body.baseFee);
+  const platformFee = Number(body.platformFee);
+  const referralCommission =
+    body.referralCommission != null
+      ? Number(body.referralCommission)
+      : round2(baseFee - platformFee);
 
   const policy = await prisma.countryPricingPolicy.create({
     data: {
@@ -18,6 +29,7 @@ export async function POST(req: NextRequest) {
       extraWeightPrice: body.extraWeightPrice,
       nightFee: body.nightFee,
       platformFee: body.platformFee,
+      referralCommission,
       maxNegativeDays: body.maxNegativeDays,
       isActive: body.isActive ?? true,
     },
