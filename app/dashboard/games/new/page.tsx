@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MultiImageUpload } from "@/components/admin/image-upload";
+import { Search } from "lucide-react";
 
 const PLACEMENTS_CUSTOMER = [
   "CUSTOMER_HOME",
@@ -28,6 +30,7 @@ const PLACEMENTS_DRIVER = [
 export default function NewGamePage() {
   const router = useRouter();
   const [countries, setCountries] = useState<{ id: string; name: string }[]>([]);
+  const [countrySearch, setCountrySearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -134,31 +137,55 @@ export default function NewGamePage() {
             </select>
           </div>
           <div>
-            <Label>Countries</Label>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {countries.map((c) => {
-                const on = form.countryIds.includes(c.id);
-                return (
-                  <Button
-                    key={c.id}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        countryIds: on
-                          ? form.countryIds.filter((id) => id !== c.id)
-                          : [...form.countryIds, c.id],
-                      })
-                    }
-                  >
-                    {c.name}
-                  </Button>
-                );
-              })}
+            <Label>Countries that can participate</Label>
+            <div className="relative mt-2">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={countrySearch}
+                onChange={(e) => setCountrySearch(e.target.value)}
+                placeholder="Search countries…"
+                className="pl-9"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {form.countryIds.length} selected
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2 max-h-64 overflow-y-auto p-2 border rounded-md">
+              {countries
+                .filter((c) =>
+                  c.name.toLowerCase().includes(countrySearch.trim().toLowerCase()),
+                )
+                .map((c) => {
+                  const on = form.countryIds.includes(c.id);
+                  return (
+                    <Button
+                      key={c.id}
+                      type="button"
+                      size="sm"
+                      variant={on ? "default" : "outline"}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          countryIds: on
+                            ? form.countryIds.filter((id) => id !== c.id)
+                            : [...form.countryIds, c.id],
+                        })
+                      }
+                    >
+                      {c.name}
+                    </Button>
+                  );
+                })}
             </div>
           </div>
+
+          <MultiImageUpload
+            label="Banner images (optional)"
+            values={form.bannerImageUrls}
+            onChange={(urls) => setForm({ ...form, bannerImageUrls: urls })}
+            hint="Shown on the game landing screen. Up to 8 images."
+            max={8}
+          />
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

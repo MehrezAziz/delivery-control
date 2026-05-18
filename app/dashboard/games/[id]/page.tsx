@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy } from "lucide-react";
+import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy, Search } from "lucide-react";
+import { ImageUpload, MultiImageUpload } from "@/components/admin/image-upload";
+import { getAdminAssetUrl } from "@/lib/asset-url";
 
 const PLACEMENTS_CUSTOMER = [
   "CUSTOMER_HOME",
@@ -112,7 +114,7 @@ export default function GameDetailPage() {
 
   const [qCategoryId, setQCategoryId] = useState<string>("");
   const [qText, setQText] = useState("");
-  const [qImage, setQImage] = useState("");
+  const [qImage, setQImage] = useState<string | null>(null);
   const [qOptions, setQOptions] = useState<Option[]>([
     { text: "", isCorrect: true },
     { text: "", isCorrect: false },
@@ -231,7 +233,7 @@ export default function GameDetailPage() {
       body: JSON.stringify({
         categoryId: qCategoryId,
         text: qText.trim() || null,
-        imageUrl: qImage.trim() || null,
+        imageUrl: qImage,
         options: filled,
       }),
     });
@@ -241,7 +243,7 @@ export default function GameDetailPage() {
       return;
     }
     setQText("");
-    setQImage("");
+    setQImage(null);
     setQOptions([
       { text: "", isCorrect: true },
       { text: "", isCorrect: false },
@@ -509,10 +511,13 @@ export default function GameDetailPage() {
                 <Label>Question text</Label>
                 <Input value={qText} onChange={(e) => setQText(e.target.value)} />
               </div>
-              <div>
-                <Label>Image URL (optional)</Label>
-                <Input value={qImage} onChange={(e) => setQImage(e.target.value)} placeholder="https://…" />
-              </div>
+              <ImageUpload
+                label="Question image (optional)"
+                value={qImage}
+                onChange={setQImage}
+                hint="JPEG, PNG or WebP up to 5 MB."
+              />
+              
               <div className="space-y-2">
                 <Label>Options (tick the correct one)</Label>
                 {qOptions.map((o, i) => (
@@ -582,7 +587,8 @@ export default function GameDetailPage() {
                     </p>
                     {q.text && <p className="text-sm font-medium">{q.text}</p>}
                     {q.imageUrl && (
-                      <img src={q.imageUrl} alt="" className="max-h-32 mt-2 rounded" />
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={getAdminAssetUrl(q.imageUrl)} alt="" className="max-h-32 mt-2 rounded" />
                     )}
                     <ul className="mt-2 text-sm space-y-1">
                       {q.options.map((o) => (
@@ -697,25 +703,24 @@ function SettingsPanel({
     winnerPoolMode: game.winnerPoolMode,
     showRecentWinners: game.showRecentWinners,
     countryIds: game.countries.map((c) => c.countryId),
-    bannerImageUrls: game.bannerImageUrls.join("\n"),
+    bannerImageUrls: game.bannerImageUrls,
   });
+  const [countrySearch, setCountrySearch] = useState("");
 
   const submit = async () => {
     setSaving(true);
     try {
-      await patchGame({
-        ...form,
-        bannerImageUrls: form.bannerImageUrls
-          .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      });
+      await patchGame(form);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed");
     } finally {
       setSaving(false);
     }
   };
+
+  const filteredCountries = countries.filter((c) =>
+    c.name.toLowerCase().includes(countrySearch.trim().toLowerCase()),
+  );
 
   return (
     <Card>
@@ -904,40 +909,53 @@ function SettingsPanel({
 
         <div>
           <Label>Countries that can participate</Label>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {countries.map((c) => {
-              const on = form.countryIds.includes(c.id);
-              return (
-                <Button
-                  key={c.id}
-                  type="button"
-                  size="sm"
-                  variant={on ? "default" : "outline"}
-                  onClick={() =>
-                    setForm({
-                      ...form,
-                      countryIds: on
-                        ? form.countryIds.filter((id) => id !== c.id)
-                        : [...form.countryIds, c.id],
-                    })
-                  }
-                >
-                  {c.name}
-                </Button>
-              );
-            })}
+          <div className="relative mt-2">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={countrySearch}
+              onChange={(e) => setCountrySearch(e.target.value)}
+              placeholder="Search countries…"
+              className="pl-9"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            {form.countryIds.length} selected · {filteredCountries.length} shown
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2 max-h-64 overflow-y-auto p-2 border rounded-md">
+            {filteredCountries.length === 0 ? (
+              <p className="text-xs text-muted-foreground p-2">No countries match.</p>
+            ) : (
+              filteredCountries.map((c) => {
+                const on = form.countryIds.includes(c.id);
+                return (
+                  <Button
+                    key={c.id}
+                    type="button"
+                    size="sm"
+                    variant={on ? "default" : "outline"}
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        countryIds: on
+                          ? form.countryIds.filter((id) => id !== c.id)
+                          : [...form.countryIds, c.id],
+                      })
+                    }
+                  >
+                    {c.name}
+                  </Button>
+                );
+              })
+            )}
           </div>
         </div>
 
-        <div>
-          <Label>Banner image URLs (one per line)</Label>
-          <textarea
-            className="w-full border rounded-md p-3 bg-background mt-1 text-sm"
-            rows={3}
-            value={form.bannerImageUrls}
-            onChange={(e) => setForm({ ...form, bannerImageUrls: e.target.value })}
-          />
-        </div>
+        <MultiImageUpload
+          label="Banner images"
+          values={form.bannerImageUrls}
+          onChange={(urls) => setForm({ ...form, bannerImageUrls: urls })}
+          hint="Shown on the game landing screen. Up to 8 images."
+        />
 
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -1058,22 +1076,18 @@ function PrizeTiersEditor({
                   />
                 </div>
               )}
-              <div>
-                <Label className="text-xs">Prize image URL (optional)</Label>
-                <Input
-                  value={t.prizeImageUrl ?? ""}
-                  onChange={(e) => update(i, { prizeImageUrl: e.target.value })}
-                  placeholder="https://…"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Congrats image URL (optional)</Label>
-                <Input
-                  value={t.congratsImageUrl ?? ""}
-                  onChange={(e) => update(i, { congratsImageUrl: e.target.value })}
-                  placeholder="https://…"
-                />
-              </div>
+              <ImageUpload
+                label="Prize image (optional)"
+                value={t.prizeImageUrl}
+                onChange={(url) => update(i, { prizeImageUrl: url })}
+                previewHeight={120}
+              />
+              <ImageUpload
+                label="Congrats screen image (optional)"
+                value={t.congratsImageUrl}
+                onChange={(url) => update(i, { congratsImageUrl: url })}
+                previewHeight={120}
+              />
             </div>
           </div>
         ))}
