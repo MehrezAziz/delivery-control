@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import RestrictionsClient from "./restrictions-client";
 
 export const dynamic = "force-dynamic";
 
@@ -12,46 +10,43 @@ export default async function RestrictionsPage() {
     take: 100,
   });
 
+  const serialized = restrictions.map((r) => ({
+    id: r.id,
+    type: r.type,
+    reason: r.reason,
+    imposedBy: r.imposedBy,
+    startDate: r.startDate.toISOString(),
+    endDate: r.endDate?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    liftedAt: r.liftedAt?.toISOString() ?? null,
+    user: {
+      id: r.user.id,
+      firstName: r.user.firstName,
+      secondName: r.user.secondName,
+      phone: r.user.phone,
+      role: r.user.role,
+    },
+  }));
+
+  const active = serialized.filter((r) => !r.liftedAt).length;
+  const lifted = serialized.filter((r) => r.liftedAt).length;
+  const permanent = serialized.filter((r) => !r.endDate && !r.liftedAt).length;
+  const byType = {
+    suspension: serialized.filter((r) => r.type === "SUSPENSION" && !r.liftedAt).length,
+    block: serialized.filter((r) => r.type === "BLOCK" && !r.liftedAt).length,
+    warning: serialized.filter((r) => r.type === "WARNING" && !r.liftedAt).length,
+  };
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-6">User Restrictions</h1>
-      <Card>
-        <CardHeader><CardTitle>All Restrictions ({restrictions.length})</CardTitle></CardHeader>
-        <CardContent>
-          {restrictions.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No restrictions found.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Start</TableHead>
-                  <TableHead>End</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {restrictions.map(r => (
-                  <TableRow key={r.id}>
-                    <TableCell>{r.user.firstName} {r.user.secondName}</TableCell>
-                    <TableCell><Badge variant="destructive">{r.type}</Badge></TableCell>
-                    <TableCell className="max-w-xs truncate">{r.reason}</TableCell>
-                    <TableCell>{r.startDate.toLocaleDateString()}</TableCell>
-                    <TableCell>{r.endDate?.toLocaleDateString() || "Permanent"}</TableCell>
-                    <TableCell>
-                      <Badge variant={r.liftedAt ? "secondary" : "default"}>
-                        {r.liftedAt ? "Lifted" : "Active"}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <RestrictionsClient
+      restrictions={serialized}
+      stats={{
+        total: serialized.length,
+        active,
+        lifted,
+        permanent,
+        ...byType,
+      }}
+    />
   );
 }

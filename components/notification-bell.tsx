@@ -265,7 +265,7 @@ export function NotificationBell() {
   }, [notifications, isAdmin, suppressCsSupportTicketId]);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative z-[60]" ref={dropdownRef}>
       <Button variant="ghost" size="icon" className="relative" onClick={handleOpen}>
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
@@ -276,7 +276,7 @@ export function NotificationBell() {
       </Button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border bg-popover shadow-lg z-50">
+        <div className="absolute right-0 top-full z-[100] mt-2 w-80 rounded-lg border bg-popover shadow-lg ring-1 ring-black/5">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <span className="text-sm font-semibold text-popover-foreground">Notifications</span>
             {unreadCount > 0 && (

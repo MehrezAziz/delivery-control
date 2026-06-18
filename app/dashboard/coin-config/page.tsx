@@ -16,7 +16,6 @@ export default async function CoinConfigPage() {
     },
   });
 
-  /** Simple `orderBy` only (no nested relation sort) — stable with Prisma 5 + Next. Sort by country name in JS. */
   const configRows = await prisma.countryCoinConfig.findMany({
     include: { country: true },
     orderBy: { effectiveFrom: "desc" },
@@ -43,5 +42,21 @@ export default async function CoinConfigPage() {
     effectiveTo: r.effectiveTo?.toISOString() ?? null,
   }));
 
-  return <CoinConfigClient countries={countries} configs={serialized} />;
+  const activeConfigs = serialized.filter((c) => c.isActive).length;
+  const countriesWithActive = new Set(
+    serialized.filter((c) => c.isActive).map((c) => c.countryId),
+  ).size;
+
+  return (
+    <CoinConfigClient
+      countries={countries}
+      configs={serialized}
+      stats={{
+        countryCount: countries.length,
+        totalConfigs: serialized.length,
+        activeConfigs,
+        countriesWithActive,
+      }}
+    />
+  );
 }

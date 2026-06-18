@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy, Search, Clock, CalendarX } from "lucide-react";
+import { Copy, Trash2, Plus, RefreshCw, Check, X, Users, Activity, MessageSquareText, Trophy, Search, Clock, CalendarX, Play, Sparkles, ChevronLeft, AlertTriangle } from "lucide-react";
 import { ImageUpload, MultiImageUpload } from "@/components/admin/image-upload";
 import { getAdminAssetUrl } from "@/lib/asset-url";
 
@@ -48,6 +48,19 @@ const SCHEDULE_MODES = [
   { value: "CALENDAR_DAYS", label: "Specific calendar days (1–31)" },
   { value: "WEEKDAYS", label: "Specific weekdays (Sun–Sat)" },
 ];
+
+const DRAW_STATUS_STYLES: Record<string, { label: string; className: string }> = {
+  OPEN: { label: "Open", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" },
+  AWAITING_CONFIRM: { label: "Awaiting confirm", className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" },
+  CONFIRMED: { label: "Confirmed", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300" },
+};
+
+const PERIOD_LABELS: Record<string, string> = {
+  DAILY: "Daily winner",
+  WEEKLY: "Weekly winner",
+  MONTHLY: "Monthly winner",
+  CUSTOM: "Custom period",
+};
 
 function formatHumanCountdown(targetIso: string): string {
   const ms = new Date(targetIso).getTime() - Date.now();
@@ -115,7 +128,20 @@ type GameDetail = {
   categories: Category[];
   prizeTiers: PrizeTier[];
   countries: Array<{ countryId: string; country: { id: string; name: string } }>;
-  draws: Array<{ id: string; status: string; poolScope: string; periodEnd: string; winners?: unknown[] }>;
+  draws: Array<{
+    id: string;
+    status: string;
+    poolScope: string;
+    periodEnd: string;
+    periodStart?: string;
+    winners?: Array<{
+      id: string;
+      status: string;
+      userRole: string;
+      correctCountInPeriod?: number;
+      prizeTier?: { prizeLabel?: string | null; coinAmount?: unknown; prizeType?: string };
+    }>;
+  }>;
   lowQuestionPool?: boolean;
   participantsCount?: number;
   playedCount?: number;
@@ -133,6 +159,7 @@ export default function GameDetailPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingPlacement, setSavingPlacement] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [runningDraw, setRunningDraw] = useState(false);
 
   const [categoryName, setCategoryName] = useState("");
 
@@ -298,74 +325,123 @@ export default function GameDetailPage() {
     await load();
   };
 
+  const runDrawNow = async () => {
+    setRunningDraw(true);
+    try {
+      const res = await fetch(`/api/games/${id}/draws/run`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Draw failed");
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Draw failed");
+    } finally {
+      setRunningDraw(false);
+    }
+  };
+
   if (!game) {
-    return <p className="p-6 text-muted-foreground">Loading…</p>;
+    return (
+      <div className="min-h-full flex items-center justify-center p-6">
+        <p className="text-muted-foreground animate-pulse">Loading game…</p>
+      </div>
+    );
   }
 
-  return (
-    <div className="p-6 max-w-5xl space-y-6">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Link href="/dashboard/games" className="text-sm text-muted-foreground hover:underline">
-          ← Games
-        </Link>
-        <div className="flex items-center gap-2">
-          <Badge variant={game.isActive ? "default" : "secondary"}>
-            {game.isActive ? "Active" : "Inactive"}
-          </Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void patchGame({ isActive: !game.isActive })}
-          >
-            {game.isActive ? "Deactivate" : "Activate"}
-          </Button>
-          <a
-            href={`/api/games/${id}/export`}
-            download
-            className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
-          >
-            Export CSV
-          </a>
-        </div>
-      </div>
+  const winnerCount = (game.draws ?? []).reduce(
+    (acc, d) => acc + (d.winners?.length ?? 0),
+    0,
+  );
 
-      <h1 className="text-2xl font-bold">{game.name}</h1>
-      {game.hasEnded && (
-        <p className="text-red-600 text-sm font-medium">
-          This game has ended on {game.endsAt ? new Date(game.endsAt).toLocaleString() : "—"} and is hidden from users.
-        </p>
-      )}
-      {game.lowQuestionPool && (
-        <p className="text-amber-600 text-sm font-medium">
-          Warning: fewer active questions than daily limit.
-        </p>
-      )}
+  return (
+    <div className="min-h-full bg-gradient-to-b from-violet-50/60 via-background to-background dark:from-violet-950/15">
+      <div className="p-6 max-w-[1400px] mx-auto space-y-6">
+        {/* Top bar */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Link
+            href="/dashboard/games"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            All games
+          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={game.isActive ? "default" : "secondary"} className={game.isActive ? "bg-emerald-600" : ""}>
+              {game.isActive ? "Live" : "Inactive"}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={() => void patchGame({ isActive: !game.isActive })}>
+              {game.isActive ? "Deactivate" : "Activate"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void runDrawNow()} disabled={runningDraw}>
+              <Play className="h-4 w-4 mr-1.5" />
+              {runningDraw ? "Running…" : "Run draw now"}
+            </Button>
+            <a
+              href={`/api/games/${id}/export`}
+              download
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
+            >
+              Export CSV
+            </a>
+          </div>
+        </div>
+
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 text-white shadow-md">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,255,255,0.12),transparent_55%)]" />
+          <div className="relative p-6 sm:p-7 space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
+              <Sparkles className="h-3.5 w-3.5" />
+              {PERIOD_LABELS[game.periodMode] ?? game.periodMode}
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold">{game.name}</h1>
+            {game.description && <p className="text-violet-100 text-sm max-w-2xl">{game.description}</p>}
+          </div>
+        </div>
+
+        {game.hasEnded && (
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+            <p>
+              This game ended on{" "}
+              <strong>{game.endsAt ? new Date(game.endsAt).toLocaleString() : "—"}</strong> and is hidden
+              from users. Run a draw now if winners are still pending.
+            </p>
+          </div>
+        )}
+        {game.lowQuestionPool && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+            <p>Fewer active questions than the daily limit ({game.questionsPerDay}/day). Add more questions.</p>
+          </div>
+        )}
 
       {/* NEXT WINNER COUNTDOWN */}
-      <Card>
+      <Card className="overflow-hidden border-violet-200/60 dark:border-violet-800/40">
+        <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500" />
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Clock className="h-4 w-4" />
+            <Clock className="h-4 w-4 text-violet-600" />
             Time to next winner
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {game.hasEnded ? (
-            <p className="text-sm text-muted-foreground">Game has ended — no more draws.</p>
+            <p className="text-sm text-muted-foreground">Game has ended — use &quot;Run draw now&quot; to finalize pending periods.</p>
           ) : game.nextDrawAt ? (
             <>
-              <p className="text-3xl font-bold tabular-nums">
+              <p className="text-4xl font-bold tabular-nums tracking-tight text-violet-700 dark:text-violet-300">
                 {formatHumanCountdown(game.nextDrawAt)}
               </p>
               <p className="text-xs text-muted-foreground">
-                Next draw runs at {new Date(game.nextDrawAt).toLocaleString()} (Tunisia time)
+                Draw runs when the period ends, then within about a minute. Scheduled at{" "}
+                {new Date(game.nextDrawAt).toLocaleString()} (Tunisia time).
               </p>
             </>
           ) : (
             <p className="text-sm text-muted-foreground">No upcoming draw scheduled.</p>
           )}
           {game.endsAt && !game.hasEnded && (
-            <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+            <p className="text-xs text-muted-foreground inline-flex items-center gap-1 pt-1">
               <CalendarX className="h-3.5 w-3.5" />
               Game ends on {new Date(game.endsAt).toLocaleString()}
             </p>
@@ -379,35 +455,39 @@ export default function GameDetailPage() {
           icon={<Users className="h-5 w-5" />}
           label="Participants"
           value={game.participantsCount ?? 0}
-          hint="users who entered the code"
+          hint="entered the code"
+          accent="violet"
         />
         <StatCard
           icon={<Activity className="h-5 w-5" />}
           label="Played"
           value={game.playedCount ?? 0}
           hint="answered ≥ 1 question"
+          accent="blue"
         />
         <StatCard
           icon={<MessageSquareText className="h-5 w-5" />}
           label="Answers"
           value={game.answersCount ?? 0}
           hint="total submitted"
+          accent="amber"
         />
         <StatCard
           icon={<Trophy className="h-5 w-5" />}
           label="Winners"
-          value={(game.draws ?? []).reduce(
-            (acc, d) => acc + ((d as { winners?: unknown[] }).winners?.length ?? 0),
-            0,
-          )}
+          value={winnerCount}
           hint="across all draws"
+          accent="emerald"
         />
       </div>
 
-      {/* ACCESS CODE — always visible */}
-      <Card>
+      {/* ACCESS CODE */}
+      <Card className="border-dashed border-violet-300/50 dark:border-violet-700/50">
         <CardHeader>
-          <CardTitle>Access code (share on social media)</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Access code
+            <Badge variant="outline" className="font-normal text-xs">Share on social media</Badge>
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {game.accessCodePlain ? (
@@ -687,34 +767,93 @@ export default function GameDetailPage() {
 
       {/* DRAWS */}
       <Card>
-        <CardHeader>
-          <CardTitle>Draws</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-amber-500" />
+            Draws &amp; winners
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={() => void runDrawNow()} disabled={runningDraw}>
+            <Play className="h-4 w-4 mr-1.5" />
+            {runningDraw ? "Running…" : "Run draw now"}
+          </Button>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
           {(game.draws ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No draws yet.</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No draws yet. When a period ends (or the game end date passes), a winner is selected
+              automatically. You can also trigger a draw manually.
+            </p>
           ) : (
-            game.draws.map((d) => (
-              <div key={d.id} className="flex items-center justify-between border rounded-md p-3 text-sm">
-                <span>
-                  {d.poolScope} — {d.status} — ends {new Date(d.periodEnd).toLocaleString()}
-                </span>
-                {d.status === "AWAITING_CONFIRM" && (
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      await fetch(`/api/games/${id}/draws/${d.id}/confirm`, { method: "POST" });
-                      await load();
-                    }}
-                  >
-                    Confirm winners
-                  </Button>
-                )}
-              </div>
-            ))
+            game.draws.map((d) => {
+              const statusStyle = DRAW_STATUS_STYLES[d.status] ?? {
+                label: d.status,
+                className: "bg-muted text-muted-foreground",
+              };
+              return (
+                <div key={d.id} className="rounded-xl border p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{d.poolScope}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusStyle.className}`}>
+                          {statusStyle.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Period ended {new Date(d.periodEnd).toLocaleString()}
+                      </p>
+                    </div>
+                    {d.status === "AWAITING_CONFIRM" && (
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          await fetch(`/api/games/${id}/draws/${d.id}/confirm`, { method: "POST" });
+                          await load();
+                        }}
+                      >
+                        Confirm winners
+                      </Button>
+                    )}
+                  </div>
+                  {(d.winners?.length ?? 0) > 0 ? (
+                    <ul className="space-y-2">
+                      {d.winners!.map((w) => (
+                        <li
+                          key={w.id}
+                          className="flex items-center gap-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 px-3 py-2 text-sm"
+                        >
+                          <Trophy className="h-4 w-4 text-amber-500 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium">{w.userRole}</span>
+                            <span className="text-muted-foreground mx-1.5">·</span>
+                            <span>
+                              {w.prizeTier?.prizeLabel ??
+                                (w.prizeTier?.coinAmount
+                                  ? `${Number(w.prizeTier.coinAmount)} coins`
+                                  : "Prize")}
+                            </span>
+                            {w.correctCountInPeriod != null && (
+                              <span className="text-muted-foreground text-xs ml-2">
+                                ({w.correctCountInPeriod} correct)
+                              </span>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {w.status.replace(/_/g, " ")}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">No winners for this draw.</p>
+                  )}
+                </div>
+              );
+            })
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
@@ -724,19 +863,28 @@ function StatCard({
   label,
   value,
   hint,
+  accent = "violet",
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
   hint?: string;
+  accent?: "violet" | "blue" | "amber" | "emerald";
 }) {
+  const accentClasses = {
+    violet: "from-violet-500/10 to-violet-600/5 border-violet-200/60 dark:border-violet-800/40 text-violet-600",
+    blue: "from-blue-500/10 to-blue-600/5 border-blue-200/60 dark:border-blue-800/40 text-blue-600",
+    amber: "from-amber-500/10 to-amber-600/5 border-amber-200/60 dark:border-amber-800/40 text-amber-600",
+    emerald: "from-emerald-500/10 to-emerald-600/5 border-emerald-200/60 dark:border-emerald-800/40 text-emerald-600",
+  }[accent];
+
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-center gap-2 text-muted-foreground text-xs uppercase tracking-wide">
+    <div className={`rounded-xl border bg-gradient-to-br p-4 ${accentClasses}`}>
+      <div className="flex items-center gap-2 text-xs uppercase tracking-wide opacity-80">
         {icon}
         {label}
       </div>
-      <div className="mt-2 text-2xl font-bold">{value.toLocaleString()}</div>
+      <div className="mt-2 text-2xl font-bold tabular-nums text-foreground">{value.toLocaleString()}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
     </div>
   );

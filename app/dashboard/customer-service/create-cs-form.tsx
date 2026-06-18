@@ -6,18 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { UserPlus, Shield, BarChart3 } from "lucide-react";
+import { CsRolePicker } from "@/components/admin/cs-role-picker";
 
 const DEFAULT_MAX_ANALYTICS_DAYS = 7;
 const MIN_MAX_ANALYTICS_DAYS = 1;
 const MAX_MAX_ANALYTICS_DAYS = 3650;
-
-const ALL_ROLES = [
-  "READ_DRIVER_PROFILE", "READ_CUSTOMER_PROFILE", "UPDATE_DRIVER_STATUS",
-  "UPDATE_CUSTOMER_STATUS", "VERIFY_ACCOUNTS", "ACCEPT_LOCAL_PAYMENT",
-  "VIEW_DELIVERIES", "SEE_DELIVERY_COMPANY", "MANAGE_DELIVERY_COMPANY",
-  "MANAGE_DISPUTES", "MANAGE_SUPPORT_TICKETS",
-  "VIEW_FINANCIAL_REPORTS", "MANAGE_FINANCIAL_REPORTS", "PROCESS_WITHDRAWALS", "MANAGE_COMPANY_FINANCE",
-];
 
 export default function CreateCSForm() {
   const [pseudo, setPseudo] = useState("");
@@ -25,19 +19,20 @@ export default function CreateCSForm() {
   const [telephone, setTelephone] = useState("");
   const [password, setPassword] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
-  const [financialAnalyticsMaxDays, setFinancialAnalyticsMaxDays] = useState<number>(DEFAULT_MAX_ANALYTICS_DAYS);
+  const [financialAnalyticsMaxDays, setFinancialAnalyticsMaxDays] = useState<number>(
+    DEFAULT_MAX_ANALYTICS_DAYS,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
 
-  function toggleRole(role: string) {
-    setRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (roles.length === 0) { setError("Select at least one role"); return; }
+    if (roles.length === 0) {
+      setError("Select at least one permission");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/customer-service", {
@@ -46,49 +41,94 @@ export default function CreateCSForm() {
         body: JSON.stringify({ pseudo, email, telephone, password, roles, financialAnalyticsMaxDays }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Failed to create"); return; }
-      setPseudo(""); setEmail(""); setTelephone(""); setPassword(""); setRoles([]);
+      if (!res.ok) {
+        setError(data.error || "Failed to create");
+        return;
+      }
+      setPseudo("");
+      setEmail("");
+      setTelephone("");
+      setPassword("");
+      setRoles([]);
       setFinancialAnalyticsMaxDays(DEFAULT_MAX_ANALYTICS_DAYS);
       router.refresh();
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <Card>
-      <CardHeader><CardTitle>Create Customer Service Account</CardTitle></CardHeader>
+    <Card className="overflow-hidden border-teal-200/60 dark:border-teal-800/40">
+      <div className="h-1 bg-gradient-to-r from-teal-500 via-cyan-500 to-sky-500" />
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <UserPlus className="h-5 w-5 text-teal-600" />
+          Create account
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          New customer service agents sign in at the CS login page with the credentials below.
+        </p>
+      </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Pseudo</Label>
-              <Input value={pseudo} onChange={e => setPseudo(e.target.value)} required />
+              <Input
+                value={pseudo}
+                onChange={(e) => setPseudo(e.target.value)}
+                placeholder="e.g. support_tunis"
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="agent@company.com"
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label>Telephone</Label>
-              <Input value={telephone} onChange={e => setTelephone(e.target.value)} required />
+              <Input
+                value={telephone}
+                onChange={(e) => setTelephone(e.target.value)}
+                placeholder="+216 …"
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label>Password</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                placeholder="Min. 6 characters"
+              />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>Roles (Permissions)</Label>
-            <div className="flex flex-wrap gap-2">
-              {ALL_ROLES.map(role => (
-                <button key={role} type="button" onClick={() => toggleRole(role)}
-                  className={`px-2 py-1 text-xs rounded border transition-colors ${roles.includes(role) ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-accent"}`}>
-                  {role.replace(/_/g, " ")}
-                </button>
-              ))}
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-teal-600" />
+              <Label className="text-base">Permissions</Label>
+              <span className="text-xs text-muted-foreground ml-auto tabular-nums">
+                {roles.length} selected
+              </span>
             </div>
+            <CsRolePicker selected={roles} onChange={setRoles} disabled={loading} />
           </div>
-          <div className="space-y-2">
-            <Label>CS Analytics Max Days</Label>
+
+          <div className="rounded-xl border bg-muted/30 p-4 space-y-2 max-w-sm">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              <Label>Analytics max range (days)</Label>
+            </div>
             <Input
               type="number"
               min={MIN_MAX_ANALYTICS_DAYS}
@@ -97,11 +137,18 @@ export default function CreateCSForm() {
               onChange={(e) => setFinancialAnalyticsMaxDays(Number(e.target.value))}
             />
             <p className="text-xs text-muted-foreground">
-              Admin-defined limit for analytics window (e.g. 7, 365, 372).
+              Maximum date range this agent can query in financial analytics (e.g. 7, 30, 365).
             </p>
           </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          <Button type="submit" disabled={loading}>{loading ? "Creating..." : "Create Account"}</Button>
+
+          {error && (
+            <p className="text-sm text-red-600 dark:text-red-400 rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2">
+              {error}
+            </p>
+          )}
+          <Button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
+            {loading ? "Creating…" : "Create account"}
+          </Button>
         </form>
       </CardContent>
     </Card>

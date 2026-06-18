@@ -1,10 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import Link from "next/link";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { CustomerStatusIndicator } from "@/components/customer-status-indicator";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UsersAdminClient } from "./users-admin-client";
 
 export const dynamic = "force-dynamic";
 
@@ -22,75 +17,28 @@ export default async function UsersPage() {
     }),
   ]);
 
-  return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-6">User Management</h1>
-      <Tabs defaultValue="customers">
-        <TabsList>
-          <TabsTrigger value="customers">Customers ({customers.length})</TabsTrigger>
-          <TabsTrigger value="drivers">Drivers ({drivers.length})</TabsTrigger>
-        </TabsList>
+  const customerRows = customers.map((c) => ({
+    id: c.id,
+    userId: c.user.id,
+    firstName: c.user.firstName ?? "",
+    secondName: c.user.secondName ?? "",
+    phone: c.user.phone,
+    email: c.user.googleEmail || c.user.myEmail,
+    customerStatus: c.customerStatus,
+    completedOrders: c.completedOrders,
+    createdAt: c.user.createdAt.toISOString(),
+  }));
 
-        <TabsContent value="customers" className="mt-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Orders</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.map(c => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.user.firstName} {c.user.secondName}</TableCell>
-                  <TableCell>{c.user.phone || "-"}</TableCell>
-                  <TableCell>{c.user.googleEmail || c.user.myEmail || "-"}</TableCell>
-                  <TableCell><CustomerStatusIndicator status={c.customerStatus} /></TableCell>
-                  <TableCell>{c.completedOrders}</TableCell>
-                  <TableCell>
-                    <Link href={`/dashboard/users/${c.user.id}?type=customer`}>
-                      <Button variant="outline" size="sm">View</Button>
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TabsContent>
+  const driverRows = drivers.map((d) => ({
+    id: d.id,
+    userId: d.user.id,
+    firstName: d.user.firstName ?? "",
+    secondName: d.user.secondName ?? "",
+    phone: d.user.phone,
+    vehicleType: d.vehicleType,
+    status: d.status,
+    createdAt: d.user.createdAt.toISOString(),
+  }));
 
-        <TabsContent value="drivers" className="mt-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Vehicle</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {drivers.map(d => (
-                <TableRow key={d.id}>
-                  <TableCell>{d.user.firstName} {d.user.secondName}</TableCell>
-                  <TableCell>{d.user.phone || "-"}</TableCell>
-                  <TableCell>{d.vehicleType || "-"}</TableCell>
-                  <TableCell><Badge variant={d.status === "VERIFIED" ? "default" : "secondary"}>{d.status}</Badge></TableCell>
-                  <TableCell>
-                    <Link href={`/dashboard/users/${d.user.id}?type=driver`}>
-                      <Button variant="outline" size="sm">View</Button>
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+  return <UsersAdminClient customers={customerRows} drivers={driverRows} />;
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -10,9 +12,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Banknote,
+  Building2,
+  CheckCircle2,
+  Clock,
+  Filter,
+  History,
+  RefreshCw,
+  Search,
+  Truck,
+  User,
+  Wallet,
+  AlertTriangle,
+  XCircle,
+} from "lucide-react";
 
 type PayoutAmountFields = {
   currencyCode: string;
@@ -66,8 +86,48 @@ type DriverHist = Omit<DriverRow, "accountBalance"> & {
 
 type HistMerged = (CustomerHist & { role: "customer" }) | (DriverHist & { role: "driver" });
 
+type RoleFilter = "all" | "customer" | "driver";
+type MethodFilter = "all" | "BANK_TRANSFER" | "CASH";
+
+const ROLE_FILTERS: { value: RoleFilter; label: string }[] = [
+  { value: "all", label: "All roles" },
+  { value: "customer", label: "Customers" },
+  { value: "driver", label: "Drivers" },
+];
+
+const METHOD_FILTERS: { value: MethodFilter; label: string }[] = [
+  { value: "all", label: "All methods" },
+  { value: "BANK_TRANSFER", label: "Bank" },
+  { value: "CASH", label: "Cash" },
+];
+
 function formatFiatAmount(value: number, currencyCode: string) {
   return `${value.toFixed(2)} ${currencyCode}`;
+}
+
+function formatDate(iso: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+function initials(name: string) {
+  const parts = name.split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+function methodBadgeClass(method: string) {
+  if (method === "BANK_TRANSFER") return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300";
+  if (method === "CASH") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300";
+  return "bg-muted text-muted-foreground";
+}
+
+function formatMethod(method: string) {
+  return method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function PayoutAmountCell({
@@ -176,6 +236,10 @@ export function FiatWithdrawalsPanel() {
   const [rejectTarget, setRejectTarget] = useState<{ type: "customer" | "driver"; id: string; label: string } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [methodFilter, setMethodFilter] = useState<MethodFilter>("all");
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -225,6 +289,62 @@ export function FiatWithdrawalsPanel() {
     });
     return rows;
   }, [histCustomer, histDriver]);
+
+  const stats = useMemo(() => {
+    const allPending = [...customer, ...driver];
+    const totalNetCoins = allPending.reduce((s, r) => s + r.netPayoutCoins, 0);
+    const insufficient =
+      customer.filter((r) => r.amount > r.walletBalance).length +
+      driver.filter((r) => r.amount > r.accountBalance).length;
+    return {
+      pendingCustomer: customer.length,
+      pendingDriver: driver.length,
+      pendingTotal: allPending.length,
+      totalNetCoins,
+      insufficient,
+      historyCount: mergedHistory.length,
+    };
+  }, [customer, driver, mergedHistory]);
+
+  const matchesFilters = useCallback(
+    (name: string, method: string) => {
+      if (search.trim() && !name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (methodFilter !== "all" && method !== methodFilter) return false;
+      return true;
+    },
+    [search, methodFilter],
+  );
+
+  const filteredCustomer = useMemo(
+    () => customer.filter((r) => matchesFilters(r.customer?.name || "", r.payoutMethod)),
+    [customer, matchesFilters],
+  );
+
+  const filteredDriver = useMemo(
+    () => driver.filter((r) => matchesFilters(r.driver?.name || "", r.payoutMethod)),
+    [driver, matchesFilters],
+  );
+
+  const filteredHistory = useMemo(() => {
+    let rows = mergedHistory;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter((r) => {
+        const name = r.role === "customer" ? r.customer?.name || "" : r.driver?.name || "";
+        return name.toLowerCase().includes(q);
+      });
+    }
+    if (roleFilter !== "all") rows = rows.filter((r) => r.role === roleFilter);
+    if (methodFilter !== "all") rows = rows.filter((r) => r.payoutMethod === methodFilter);
+    return rows;
+  }, [mergedHistory, search, roleFilter, methodFilter]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadQueue();
+    if (historyFetched) await loadHistory();
+    setRefreshing(false);
+  }
 
   const openMarkSent = (
     row:
@@ -325,264 +445,506 @@ export function FiatWithdrawalsPanel() {
   const totalDebitForPending = pending ? pending.amount : 0;
   const cashPayoutPending = pending?.payoutMethod === "CASH";
 
+  const showCustomerQueue = roleFilter === "all" || roleFilter === "customer";
+  const showDriverQueue = roleFilter === "all" || roleFilter === "driver";
+
   if (loading) {
-    return <p className="text-muted-foreground">Loading payout queue…</p>;
+    return (
+      <div className="min-h-full bg-gradient-to-b from-cyan-50/50 via-background to-background dark:from-cyan-950/10">
+        <div className="space-y-6 max-w-[1400px] mx-auto">
+          <Skeleton className="h-44 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      {err && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          {err}
+    <div className="min-h-full bg-gradient-to-b from-cyan-50/50 via-background to-background dark:from-cyan-950/10">
+      <div className="space-y-6 max-w-[1400px] mx-auto">
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-cyan-600 via-teal-600 to-slate-700 text-white shadow-lg">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,255,255,0.14),transparent_55%)]" />
+          <div className="relative p-6 sm:p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+                  <Banknote className="h-3.5 w-3.5" />
+                  Fiat payout desk
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Fiat payout queue</h1>
+                <p className="max-w-xl text-sm text-white/80">
+                  Review pending withdrawal requests, send funds manually, then mark as sent or reject with a reason.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="shrink-0 bg-white/15 text-white hover:bg-white/25 border-0"
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {[
+                { label: "Pending total", value: stats.pendingTotal, icon: Clock },
+                { label: "Customers", value: stats.pendingCustomer, icon: User },
+                { label: "Drivers", value: stats.pendingDriver, icon: Truck },
+                { label: "Net coins (queue)", value: stats.totalNetCoins.toFixed(2), icon: Wallet },
+                { label: "Insufficient bal.", value: stats.insufficient, icon: AlertTriangle },
+                { label: "Completed", value: stats.historyCount, icon: CheckCircle2 },
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} className="rounded-xl bg-white/10 px-3 py-2.5 backdrop-blur-sm">
+                  <div className="flex items-center gap-1.5 text-xs text-white/70">
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </div>
+                  <p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
 
-      <Tabs
-        defaultValue="queue"
-        onValueChange={(v) => {
-          if (v === "history" && !historyFetched) {
-            setHistoryFetched(true);
-            void loadHistory();
-          }
-        }}
-      >
-        <TabsList>
-          <TabsTrigger value="queue">Pending queue</TabsTrigger>
-          <TabsTrigger value="history">Fiat payout done (history)</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="queue" className="mt-6 space-y-8">
-          <div>
-            <h2 className="text-lg font-semibold">Customer wallet → cash / bank</h2>
-            <p className="mb-3 text-sm text-muted-foreground">
-              After you send money manually, mark as sent. The customer&apos;s coin balance will be reduced by the request
-              amount.
-            </p>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="p-2">Customer</th>
-                    <th className="p-2">Amount</th>
-                    <th className="p-2">Method</th>
-                    <th className="p-2">Bank details</th>
-                    <th className="p-2">Wallet bal.</th>
-                    <th className="p-2">Requested</th>
-                    <th className="p-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {customer.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-4 text-muted-foreground">
-                        No pending customer withdrawals
-                      </td>
-                    </tr>
-                  ) : (
-                    customer.map((r) => (
-                      <tr key={r.id} className="border-t">
-                        <td className="p-2">{r.customer?.name || "—"}</td>
-                        <td className="p-2">
-                          <PayoutAmountCell
-                            grossCoins={r.amount}
-                            feeCoins={r.feeAmount ?? 0}
-                            netPayoutCoins={r.netPayoutCoins}
-                            netPayoutFiat={r.netPayoutFiat}
-                            grossDebitFiat={r.grossDebitFiat}
-                            currencyCode={r.currencyCode}
-                          />
-                        </td>
-                        <td className="p-2">{r.payoutMethod}</td>
-                        <td className="p-2 align-top">
-                          <BankPayoutCell
-                            payoutMethod={r.payoutMethod}
-                            holder={r.payoutBankHolderName}
-                            bankName={r.payoutBankName}
-                            accountRef={r.payoutBankAccountRef}
-                          />
-                        </td>
-                        <td className="p-2 text-xs text-muted-foreground tabular-nums">{r.walletBalance.toFixed(2)}</td>
-                        <td className="p-2">{new Date(r.requestedAt).toLocaleString()}</td>
-                        <td className="p-2">
-                          <div className="flex flex-wrap gap-2 justify-end">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                openReject("customer", r.id, `Customer ${r.customer?.name || ""}`)
-                              }
-                            >
-                              Reject
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={r.amount > r.walletBalance}
-                              onClick={() =>
-                                openMarkSent(
-                                  {
-                                    ...r,
-                                    label: `Customer withdrawal (${r.customer?.name || ""})`,
-                                  },
-                                  "customer",
-                                  r.walletBalance,
-                                )
-                              }
-                            >
-                              Money sent
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        {err && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {err}
           </div>
+        )}
 
-          <div>
-            <h2 className="text-lg font-semibold">Driver account → cash / bank</h2>
-            <p className="mb-3 text-sm text-muted-foreground">
-              Marks the driver&apos;s in-app balance as paid out (coins / TND ledger).
-            </p>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="p-2">Driver</th>
-                    <th className="p-2">Amount</th>
-                    <th className="p-2">Method</th>
-                    <th className="p-2">Bank details</th>
-                    <th className="p-2">Account bal.</th>
-                    <th className="p-2">Requested</th>
-                    <th className="p-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {driver.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-4 text-muted-foreground">
-                        No pending driver withdrawals
-                      </td>
-                    </tr>
-                  ) : (
-                    driver.map((r) => (
-                      <tr key={r.id} className="border-t">
-                        <td className="p-2">{r.driver?.name || "—"}</td>
-                        <td className="p-2">
-                          <PayoutAmountCell
-                            grossCoins={r.amount}
-                            feeCoins={r.feeAmount ?? 0}
-                            netPayoutCoins={r.netPayoutCoins}
-                            netPayoutFiat={r.netPayoutFiat}
-                            grossDebitFiat={r.grossDebitFiat}
-                            currencyCode={r.currencyCode}
-                          />
-                        </td>
-                        <td className="p-2">{r.payoutMethod}</td>
-                        <td className="p-2 align-top">
-                          <BankPayoutCell
-                            payoutMethod={r.payoutMethod}
-                            holder={r.payoutBankHolderName}
-                            bankName={r.payoutBankName}
-                            accountRef={r.payoutBankAccountRef}
-                          />
-                        </td>
-                        <td className="p-2 text-xs text-muted-foreground tabular-nums">{r.accountBalance.toFixed(2)}</td>
-                        <td className="p-2">{new Date(r.requestedAt).toLocaleString()}</td>
-                        <td className="p-2">
-                          <div className="flex flex-wrap gap-2 justify-end">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openReject("driver", r.id, `Driver ${r.driver?.name || ""}`)}
-                            >
-                              Reject
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={r.amount > r.accountBalance}
-                              onClick={() =>
-                                openMarkSent(
-                                  {
-                                    ...r,
-                                    label: `Driver withdrawal (${r.driver?.name || ""})`,
-                                  },
-                                  "driver",
-                                  r.accountBalance,
-                                )
-                              }
-                            >
-                              Money sent
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+        {/* Filters */}
+        <Card className="border-cyan-100/60 dark:border-cyan-900/30">
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Filter className="h-4 w-4" />
+                Filters
+              </div>
             </div>
-          </div>
-        </TabsContent>
+            <div className="flex flex-wrap gap-2">
+              {ROLE_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setRoleFilter(f.value)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    roleFilter === f.value
+                      ? "bg-cyan-600 text-white"
+                      : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              <span className="w-px h-6 bg-border self-center mx-1 hidden sm:block" />
+              {METHOD_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setMethodFilter(f.value)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    methodFilter === f.value
+                      ? "bg-teal-600 text-white"
+                      : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-        <TabsContent value="history" className="mt-6">
-          {histLoading ? (
-            <p className="text-muted-foreground">Loading history…</p>
-          ) : mergedHistory.length === 0 ? (
-            <p className="text-muted-foreground">No completed fiat payouts yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="p-2">Role</th>
-                    <th className="p-2">User</th>
-                    <th className="p-2">Amount</th>
-                    <th className="p-2">Method</th>
-                    <th className="p-2">Bank details</th>
-                    <th className="p-2">Requested</th>
-                    <th className="p-2">Sent / processed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mergedHistory.map((r) => (
-                    <tr key={`${r.role}-${r.id}`} className="border-t">
-                      <td className="p-2 capitalize">{r.role}</td>
-                      <td className="p-2">
-                        {r.role === "customer" ? r.customer?.name || "—" : r.driver?.name || "—"}
-                      </td>
-                      <td className="p-2">
-                        <PayoutAmountCell
-                          grossCoins={r.amount}
-                          feeCoins={r.feeAmount ?? 0}
-                          netPayoutCoins={r.netPayoutCoins}
-                          netPayoutFiat={r.netPayoutFiat}
-                          grossDebitFiat={r.grossDebitFiat}
-                          currencyCode={r.currencyCode}
-                        />
-                      </td>
-                      <td className="p-2">{r.payoutMethod}</td>
-                      <td className="p-2 align-top">
-                        <BankPayoutCell
-                          payoutMethod={r.payoutMethod}
-                          holder={r.payoutBankHolderName}
-                          bankName={r.payoutBankName}
-                          accountRef={r.payoutBankAccountRef}
-                        />
-                      </td>
-                      <td className="p-2 whitespace-nowrap">{new Date(r.requestedAt).toLocaleString()}</td>
-                      <td className="p-2 whitespace-nowrap">
-                        {r.processedAt ? new Date(r.processedAt).toLocaleString() : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+        <Tabs
+          defaultValue="queue"
+          onValueChange={(v) => {
+            if (v === "history" && !historyFetched) {
+              setHistoryFetched(true);
+              void loadHistory();
+            }
+          }}
+        >
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="queue" className="gap-2">
+              <Clock className="h-4 w-4" />
+              Pending ({stats.pendingTotal})
+            </TabsTrigger>
+            <TabsTrigger value="history" className="gap-2">
+              <History className="h-4 w-4" />
+              History
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="queue" className="mt-6 space-y-6">
+            {showCustomerQueue && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <User className="h-5 w-5 text-cyan-600" />
+                    Customer wallet → cash / bank
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    After you send money manually, mark as sent. The customer&apos;s coin balance will be reduced.
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Bank details</TableHead>
+                          <TableHead>Wallet bal.</TableHead>
+                          <TableHead>Requested</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredCustomer.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="h-32 text-center">
+                              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                <CheckCircle2 className="h-8 w-8 opacity-40" />
+                                <p>No pending customer withdrawals</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredCustomer.map((r) => {
+                            const name = r.customer?.name || "—";
+                            const insufficient = r.amount > r.walletBalance;
+                            return (
+                              <TableRow key={r.id} className="hover:bg-muted/30">
+                                <TableCell>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-cyan-700 text-xs font-semibold dark:bg-cyan-900/40 dark:text-cyan-300">
+                                      {initials(name)}
+                                    </div>
+                                    <div>
+                                      <p className="font-medium">{name}</p>
+                                      {r.customer?.phone ? (
+                                        <p className="text-xs text-muted-foreground">{r.customer.phone}</p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <PayoutAmountCell
+                                    grossCoins={r.amount}
+                                    feeCoins={r.feeAmount ?? 0}
+                                    netPayoutCoins={r.netPayoutCoins}
+                                    netPayoutFiat={r.netPayoutFiat}
+                                    grossDebitFiat={r.grossDebitFiat}
+                                    currencyCode={r.currencyCode}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className={methodBadgeClass(r.payoutMethod)}>
+                                    {formatMethod(r.payoutMethod)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <BankPayoutCell
+                                    payoutMethod={r.payoutMethod}
+                                    holder={r.payoutBankHolderName}
+                                    bankName={r.payoutBankName}
+                                    accountRef={r.payoutBankAccountRef}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <span className={`tabular-nums text-sm ${insufficient ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                                    {r.walletBalance.toFixed(2)}
+                                    {insufficient ? (
+                                      <span className="block text-xs text-red-500">Insufficient</span>
+                                    ) : null}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                  {formatDate(r.requestedAt)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex flex-wrap gap-2 justify-end">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-red-600 hover:text-red-700"
+                                      onClick={() => openReject("customer", r.id, `Customer ${name}`)}
+                                    >
+                                      <XCircle className="h-3.5 w-3.5 mr-1" />
+                                      Reject
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      disabled={insufficient}
+                                      onClick={() =>
+                                        openMarkSent(
+                                          { ...r, label: `Customer withdrawal (${name})` },
+                                          "customer",
+                                          r.walletBalance,
+                                        )
+                                      }
+                                    >
+                                      Money sent
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {showDriverQueue && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Truck className="h-5 w-5 text-teal-600" />
+                    Driver account → cash / bank
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Marks the driver&apos;s in-app balance as paid out (coins / fiat ledger).
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead>Driver</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Bank details</TableHead>
+                          <TableHead>Account bal.</TableHead>
+                          <TableHead>Requested</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredDriver.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="h-32 text-center">
+                              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                <CheckCircle2 className="h-8 w-8 opacity-40" />
+                                <p>No pending driver withdrawals</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredDriver.map((r) => {
+                            const name = r.driver?.name || "—";
+                            const insufficient = r.amount > r.accountBalance;
+                            return (
+                              <TableRow key={r.id} className="hover:bg-muted/30">
+                                <TableCell>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-700 text-xs font-semibold dark:bg-teal-900/40 dark:text-teal-300">
+                                      {initials(name)}
+                                    </div>
+                                    <div>
+                                      <p className="font-medium">{name}</p>
+                                      {r.driver?.phone ? (
+                                        <p className="text-xs text-muted-foreground">{r.driver.phone}</p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <PayoutAmountCell
+                                    grossCoins={r.amount}
+                                    feeCoins={r.feeAmount ?? 0}
+                                    netPayoutCoins={r.netPayoutCoins}
+                                    netPayoutFiat={r.netPayoutFiat}
+                                    grossDebitFiat={r.grossDebitFiat}
+                                    currencyCode={r.currencyCode}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className={methodBadgeClass(r.payoutMethod)}>
+                                    {formatMethod(r.payoutMethod)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <BankPayoutCell
+                                    payoutMethod={r.payoutMethod}
+                                    holder={r.payoutBankHolderName}
+                                    bankName={r.payoutBankName}
+                                    accountRef={r.payoutBankAccountRef}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <span className={`tabular-nums text-sm ${insufficient ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                                    {r.accountBalance.toFixed(2)}
+                                    {insufficient ? (
+                                      <span className="block text-xs text-red-500">Insufficient</span>
+                                    ) : null}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                  {formatDate(r.requestedAt)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex flex-wrap gap-2 justify-end">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-red-600 hover:text-red-700"
+                                      onClick={() => openReject("driver", r.id, `Driver ${name}`)}
+                                    >
+                                      <XCircle className="h-3.5 w-3.5 mr-1" />
+                                      Reject
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      disabled={insufficient}
+                                      onClick={() =>
+                                        openMarkSent(
+                                          { ...r, label: `Driver withdrawal (${name})` },
+                                          "driver",
+                                          r.accountBalance,
+                                        )
+                                      }
+                                    >
+                                      Money sent
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-6">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <History className="h-5 w-5 text-muted-foreground" />
+                  Completed fiat payouts
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {histLoading ? (
+                  <div className="p-6 space-y-3">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : filteredHistory.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+                    <History className="h-10 w-10 opacity-40" />
+                    <p>No completed fiat payouts yet</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead>Role</TableHead>
+                          <TableHead>User</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Bank details</TableHead>
+                          <TableHead>Requested</TableHead>
+                          <TableHead>Processed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredHistory.map((r) => {
+                          const name = r.role === "customer" ? r.customer?.name || "—" : r.driver?.name || "—";
+                          return (
+                            <TableRow key={`${r.role}-${r.id}`} className="hover:bg-muted/30">
+                              <TableCell>
+                                <Badge variant="outline" className={r.role === "customer" ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" : "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"}>
+                                  {r.role === "customer" ? (
+                                    <><User className="h-3 w-3 mr-1 inline" />Customer</>
+                                  ) : (
+                                    <><Truck className="h-3 w-3 mr-1 inline" />Driver</>
+                                  )}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                                    {initials(name)}
+                                  </div>
+                                  <span className="font-medium">{name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <PayoutAmountCell
+                                  grossCoins={r.amount}
+                                  feeCoins={r.feeAmount ?? 0}
+                                  netPayoutCoins={r.netPayoutCoins}
+                                  netPayoutFiat={r.netPayoutFiat}
+                                  grossDebitFiat={r.grossDebitFiat}
+                                  currencyCode={r.currencyCode}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={methodBadgeClass(r.payoutMethod)}>
+                                  {r.payoutMethod === "BANK_TRANSFER" ? (
+                                    <><Building2 className="h-3 w-3 mr-1 inline" />{formatMethod(r.payoutMethod)}</>
+                                  ) : (
+                                    <><Banknote className="h-3 w-3 mr-1 inline" />{formatMethod(r.payoutMethod)}</>
+                                  )}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <BankPayoutCell
+                                  payoutMethod={r.payoutMethod}
+                                  holder={r.payoutBankHolderName}
+                                  bankName={r.payoutBankName}
+                                  accountRef={r.payoutBankAccountRef}
+                                />
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                {formatDate(r.requestedAt)}
+                              </TableCell>
+                              <TableCell className="text-sm whitespace-nowrap">
+                                {r.processedAt ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400">{formatDate(r.processedAt)}</span>
+                                ) : (
+                                  "—"
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
       <Dialog
         open={dialogOpen}
@@ -738,6 +1100,7 @@ export function FiatWithdrawalsPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }

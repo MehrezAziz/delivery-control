@@ -13,9 +13,10 @@ export default async function CsGovernoratePage({ params }: { params: Promise<{ 
   if (!cs) notFound();
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Governorate coverage</h1>
-      <GovernorateEditor csId={cs.id} pseudo={cs.superUser.pseudo} />
+    <div className="min-h-full bg-gradient-to-b from-teal-50/50 via-background to-background dark:from-teal-950/10">
+      <div className="max-w-[1400px] mx-auto">
+        <GovernorateEditor csId={cs.id} pseudo={cs.superUser.pseudo} />
+      </div>
     </div>
   );
 }

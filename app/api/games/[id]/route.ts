@@ -16,7 +16,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
       countries: { include: { country: true } },
       prizeTiers: { orderBy: { rank: "asc" } },
       categories: { orderBy: { sortOrder: "asc" } },
-      draws: { orderBy: { periodEnd: "desc" }, take: 20, include: { winners: true } },
+      draws: {
+        orderBy: { periodEnd: "desc" },
+        take: 20,
+        include: { winners: { include: { prizeTier: true } } },
+      },
       _count: {
         select: {
           questions: { where: { isActive: true } },

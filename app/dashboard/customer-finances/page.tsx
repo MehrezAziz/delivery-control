@@ -35,27 +35,17 @@ export default async function CustomerFinancesPage() {
 
   const totalBalance = data.reduce((s, w) => s + w.balance, 0);
   const withBalance = data.filter((w) => w.balance > 0).length;
+  const totalLocked = data.reduce((s, w) => s + w.lockedForTransfers, 0);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Customer Finances</h1>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Customers with wallets</p>
-          <p className="text-2xl font-bold">{data.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Customers with balance</p>
-          <p className="text-2xl font-bold text-green-600">{withBalance}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total coins in wallets</p>
-          <p className="text-2xl font-bold">{totalBalance.toFixed(2)}</p>
-        </div>
-      </div>
-
-      <CustomerFinancesClient accounts={data} />
-    </div>
+    <CustomerFinancesClient
+      accounts={data}
+      stats={{
+        walletCount: data.length,
+        withBalance,
+        totalBalance,
+        totalLocked,
+      }}
+    />
   );
 }

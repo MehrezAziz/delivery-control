@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { CheckCircle2, MapPin, Save } from "lucide-react";
 
 interface PolicyData {
   id: string;
@@ -32,11 +33,33 @@ const fields = [
 ] as const;
 
 const defaultValues: Omit<PolicyData, "id" | "isActive"> = {
-  pricePerKm: 0, baseFee: 0, baseWeight: 0, extraWeightStep: 0,
-  extraWeightPrice: 0, nightFee: 0, platformFee: 0, maxNegativeDays: 0,
+  pricePerKm: 0,
+  baseFee: 0,
+  baseWeight: 0,
+  extraWeightStep: 0,
+  extraWeightPrice: 0,
+  nightFee: 0,
+  platformFee: 0,
+  maxNegativeDays: 0,
 };
 
-function formSnapshot(f: PolicyData | (Omit<PolicyData, "id" | "isActive"> & { id: string; isActive: boolean })) {
+const ZONE_STYLES: Record<string, string> = {
+  SAME_DELEGATION: "border-violet-200 bg-violet-50/50 dark:border-violet-900/40 dark:bg-violet-950/20",
+  SAME_GOVERNORATE: "border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20",
+  DIFFERENT_GOVERNORATE: "border-blue-200 bg-blue-50/50 dark:border-blue-900/40 dark:bg-blue-950/20",
+  DIFFERENT_COUNTRY: "border-sky-200 bg-sky-50/50 dark:border-sky-900/40 dark:bg-sky-950/20",
+};
+
+const ZONE_BADGE: Record<string, string> = {
+  SAME_DELEGATION: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
+  SAME_GOVERNORATE: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
+  DIFFERENT_GOVERNORATE: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  DIFFERENT_COUNTRY: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+};
+
+function formSnapshot(
+  f: PolicyData | (Omit<PolicyData, "id" | "isActive"> & { id: string; isActive: boolean }),
+) {
   return JSON.stringify({
     pricePerKm: f.pricePerKm,
     baseFee: f.baseFee,
@@ -49,7 +72,15 @@ function formSnapshot(f: PolicyData | (Omit<PolicyData, "id" | "isActive"> & { i
   });
 }
 
-export default function PricingForm({ countryId, zoneType, policy }: { countryId: string; zoneType: string; policy: PolicyData | null }) {
+export default function PricingForm({
+  countryId,
+  zoneType,
+  policy,
+}: {
+  countryId: string;
+  zoneType: string;
+  policy: PolicyData | null;
+}) {
   const initial = policy || { ...defaultValues, id: "", isActive: true };
   const [form, setForm] = useState(initial);
   const [baseline, setBaseline] = useState(formSnapshot(initial));
@@ -65,7 +96,10 @@ export default function PricingForm({ countryId, zoneType, policy }: { countryId
   const dirty = useMemo(() => formSnapshot(form) !== baseline, [form, baseline]);
 
   function handleChange(key: string, value: string) {
-    setForm(prev => ({ ...prev, [key]: key === "maxNegativeDays" ? parseInt(value) || 0 : parseFloat(value) || 0 }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: key === "maxNegativeDays" ? parseInt(value) || 0 : parseFloat(value) || 0,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -79,27 +113,61 @@ export default function PricingForm({ countryId, zoneType, policy }: { countryId
       });
       setBaseline(formSnapshot(form));
       router.refresh();
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   const zoneLabel = zoneType.replace(/_/g, " ");
+  const zoneStyle = ZONE_STYLES[zoneType] ?? "border-border bg-card";
+  const zoneBadge = ZONE_BADGE[zoneType] ?? "bg-muted text-muted-foreground";
 
   return (
-    <form onSubmit={handleSubmit} className="border rounded p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <Badge variant={policy ? "default" : "secondary"}>{zoneLabel}</Badge>
-        {policy && <span className="text-xs text-muted-foreground">ID: {policy.id.slice(0, 8)}...</span>}
+    <form
+      onSubmit={handleSubmit}
+      className={`rounded-xl border p-4 space-y-3 transition-shadow hover:shadow-sm ${zoneStyle}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Badge variant="outline" className={`gap-1 ${zoneBadge}`}>
+          <MapPin className="h-3 w-3" />
+          {zoneLabel}
+        </Badge>
+        <div className="flex items-center gap-2">
+          {policy?.isActive ? (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Active
+            </span>
+          ) : policy ? (
+            <span className="text-xs text-muted-foreground">Inactive</span>
+          ) : (
+            <span className="text-xs text-amber-600 dark:text-amber-400">Not configured</span>
+          )}
+        </div>
       </div>
       <div className="grid gap-2 grid-cols-2">
-        {fields.map(f => (
+        {fields.map((f) => (
           <div key={f.key} className="space-y-1">
-            <Label className="text-xs">{f.label}</Label>
-            <Input type="number" step={f.step} value={form[f.key as keyof typeof defaultValues]} onChange={e => handleChange(f.key, e.target.value)} />
+            <Label className="text-xs text-muted-foreground">{f.label}</Label>
+            <Input
+              type="number"
+              step={f.step}
+              value={form[f.key as keyof typeof defaultValues]}
+              onChange={(e) => handleChange(f.key, e.target.value)}
+              className="h-8 text-sm bg-background/80"
+            />
           </div>
         ))}
       </div>
-      <Button type="submit" size="sm" disabled={loading || (!!policy && !dirty)}>
-        {loading ? "Saving..." : policy ? (dirty ? "Update" : "Updated") : "Create"}
+      <Button
+        type="submit"
+        size="sm"
+        className="w-full"
+        disabled={loading || (!!policy && !dirty)}
+        variant={policy ? (dirty ? "default" : "secondary") : "default"}
+      >
+        <Save className="h-3.5 w-3.5 mr-1.5" />
+        {loading ? "Saving..." : policy ? (dirty ? "Update policy" : "Saved") : "Create policy"}
       </Button>
     </form>
   );

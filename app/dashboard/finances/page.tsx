@@ -15,7 +15,7 @@ export default async function FinancesPage() {
     orderBy: { balance: "asc" },
   });
 
-  const data = accounts.map(da => ({
+  const data = accounts.map((da) => ({
     id: da.id,
     driverId: da.driver.id,
     balance: Number(da.balance),
@@ -27,29 +27,19 @@ export default async function FinancesPage() {
     createdAt: da.createdAt.toISOString(),
   }));
 
-  const totalNegative = data.filter(d => d.balance < 0).reduce((s, d) => s + d.balance, 0);
-  const totalPositive = data.filter(d => d.balance > 0).reduce((s, d) => s + d.balance, 0);
+  const totalNegative = data.filter((d) => d.balance < 0).reduce((s, d) => s + d.balance, 0);
+  const totalPositive = data.filter((d) => d.balance > 0).reduce((s, d) => s + d.balance, 0);
+  const inDebt = data.filter((d) => d.balance < 0).length;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Driver Finances</h1>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Drivers</p>
-          <p className="text-2xl font-bold">{data.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Debt (negative balances)</p>
-          <p className="text-2xl font-bold text-red-600">{totalNegative.toFixed(2)} TND</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Credit (positive balances)</p>
-          <p className="text-2xl font-bold text-green-600">{totalPositive.toFixed(2)} TND</p>
-        </div>
-      </div>
-
-      <FinancesClient accounts={data} />
-    </div>
+    <FinancesClient
+      accounts={data}
+      stats={{
+        totalDrivers: data.length,
+        inDebt,
+        totalDebt: totalNegative,
+        totalCredit: totalPositive,
+      }}
+    />
   );
 }
