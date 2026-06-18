@@ -351,7 +351,7 @@ export default function DisputesPage() {
                                   }
                                 }}
                               >
-                                <DialogTrigger asChild>
+                                <DialogTrigger>
                                   <Button
                                     size="sm"
                                     className="h-8 text-xs bg-rose-600 hover:bg-rose-700"
